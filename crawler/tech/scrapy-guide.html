@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scrapy 爬虫框架技术指南 - HistoryGogo项目</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.8;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1.3em;
+            opacity: 0.95;
+        }
+
+        nav {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            border-bottom: 3px solid #667eea;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        nav a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        nav a:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        main {
+            padding: 40px;
+        }
+
+        section {
+            margin-bottom: 60px;
+        }
+
+        h2 {
+            font-size: 2.2em;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        h3 {
+            font-size: 1.6em;
+            color: #764ba2;
+            margin: 30px 0 15px;
+        }
+
+        h4 {
+            font-size: 1.3em;
+            color: #555;
+            margin: 20px 0 10px;
+        }
+
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+
+        ul, ol {
+            margin: 15px 0 15px 30px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 5px solid #2196F3;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .success-box {
+            background: #d4edda;
+            border-left: 5px solid #28a745;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        .danger-box {
+            background: #f8d7da;
+            border-left: 5px solid #dc3545;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        .diagram {
+            background: #f8f9fa;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .flow-chart {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .flow-item {
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 15px 25px;
+            font-weight: 600;
+            color: #667eea;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .flow-arrow::after {
+            content: "→";
+            margin: 0 10px;
+            font-size: 1.5em;
+            color: #764ba2;
+        }
+
+        footer {
+            background: #2d2d2d;
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin: 5px;
+            font-weight: 600;
+        }
+
+        .highlight {
+            background: linear-gradient(120deg, #f6d365 0%, #fda085 100%);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 2em;
+            }
+
+            main {
+                padding: 20px;
+            }
+
+            nav ul {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🕷️ Scrapy 爬虫框架技术指南</h1>
+            <p>HistoryGogo项目实战解析 - 从入门到精通</p>
+        </header>
+
+        <nav>
+            <ul>
+                <li><a href="#intro">框架简介</a></li>
+                <li><a href="#architecture">架构设计</a></li>
+                <li><a href="#config">配置详解</a></li>
+                <li><a href="#workflow">运行流程</a></li>
+                <li><a href="#spider">Spider开发</a></li>
+                <li><a href="#pipeline">Pipeline管道</a></li>
+                <li><a href="#middleware">中间件</a></li>
+                <li><a href="#bestpractices">最佳实践</a></li>
+            </ul>
+        </nav>
+
+        <main>
+            <!-- 框架简介 -->
+            <section id="intro">
+                <h2>📖 一、Scrapy 框架简介</h2>
+                
+                <h3>1.1 什么是 Scrapy？</h3>
+                <p>
+                    <strong>Scrapy</strong> 是一个用 Python 编写的开源网络爬虫框架，专为高效、可扩展的数据抓取而设计。
+                    它提供了完整的爬虫开发工具链，从请求调度、数据解析到持久化存储，一应俱全。
+                </p>
+
+                <div class="info-box">
+                    <h4>🎯 核心特性</h4>
+                    <ul>
+                        <li><strong>高性能异步引擎</strong>：基于 Twisted 异步网络库，支持高并发请求</li>
+                        <li><strong>灵活的架构</strong>：组件化设计，易于扩展和定制</li>
+                        <li><strong>强大的选择器</strong>：支持 XPath 和 CSS 选择器进行数据提取</li>
+                        <li><strong>内置中间件</strong>：请求/响应处理、Cookie管理、重试机制等</li>
+                        <li><strong>数据管道</strong>：Pipeline 机制用于数据清洗和持久化</li>
+                        <li><strong>自动化调度</strong>：智能请求调度和去重机制</li>
+                    </ul>
+                </div>
+
+                <h3>1.2 为什么选择 Scrapy？</h3>
+                <table>
+                    <tr>
+                        <th>对比维度</th>
+                        <th>Scrapy</th>
+                        <th>Requests + BeautifulSoup</th>
+                    </tr>
+                    <tr>
+                        <td>性能</td>
+                        <td>✅ 异步高并发</td>
+                        <td>❌ 同步单线程</td>
+                    </tr>
+                    <tr>
+                        <td>架构</td>
+                        <td>✅ 完整框架</td>
+                        <td>⚠️ 需自行搭建</td>
+                    </tr>
+                    <tr>
+                        <td>数据管道</td>
+                        <td>✅ 内置 Pipeline</td>
+                        <td>❌ 需手动实现</td>
+                    </tr>
+                    <tr>
+                        <td>中间件</td>
+                        <td>✅ 丰富的中间件</td>
+                        <td>❌ 需自行开发</td>
+                    </tr>
+                    <tr>
+                        <td>调度管理</td>
+                        <td>✅ 自动化调度</td>
+                        <td>❌ 手动管理</td>
+                    </tr>
+                    <tr>
+                        <td>学习曲线</td>
+                        <td>⚠️ 中等</td>
+                        <td>✅ 简单</td>
+                    </tr>
+                </table>
+
+                <h3>1.3 在 HistoryGogo 项目中的应用</h3>
+                <p>
+                    HistoryGogo 项目使用 Scrapy 从百度百科和维基百科抓取明朝历史数据，包括：
+                </p>
+                <ul>
+                    <li><span class="badge">皇帝信息</span> 16位明朝皇帝的详细资料</li>
+                    <li><span class="badge">历史事件</span> 军事、政治、文化等重大事件</li>
+                    <li><span class="badge">历史人物</span> 大臣、将领、文人等相关人物</li>
+                    <li><span class="badge">作品文献</span> 文学作品、艺术创作等</li>
+                </ul>
+            </section>
+
+            <!-- 架构设计 -->
+            <section id="architecture">
+                <h2>🏗️ 二、架构设计</h2>
+
+                <h3>2.1 Scrapy 核心组件</h3>
+                
+                <div class="diagram">
+                    <h4>Scrapy 架构图</h4>
+                    <div class="flow-chart">
+                        <div class="flow-item">Engine<br>(引擎)</div>
+                        <span class="flow-arrow"></span>
+                        <div class="flow-item">Scheduler<br>(调度器)</div>
+                        <span class="flow-arrow"></span>
+                        <div class="flow-item">Downloader<br>(下载器)</div>
+                        <span class="flow-arrow"></span>
+                        <div class="flow-item">Spider<br>(爬虫)</div>
+                        <span class="flow-arrow"></span>
+                        <div class="flow-item">Pipeline<br>(管道)</div>
+                    </div>
+                </div>
+
+                <h4>组件详解：</h4>
+                
+                <table>
+                    <tr>
+                        <th>组件</th>
+                        <th>职责</th>
+                        <th>在项目中的应用</th>
+                    </tr>
+                    <tr>
+                        <td><strong>Engine（引擎）</strong></td>
+                        <td>核心控制器，协调各组件工作</td>
+                        <td>自动管理整个爬取流程</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Scheduler（调度器）</strong></td>
+                        <td>接收请求并排队，去重</td>
+                        <td>自动处理皇帝、事件、人物的URL调度</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Downloader（下载器）</strong></td>
+                        <td>下载网页内容</td>
+                        <td>从百度百科获取HTML页面</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Spider（爬虫）</strong></td>
+                        <td>解析响应，提取数据和新请求</td>
+                        <td>BaiduBaikeSpider 解析历史数据</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pipeline（管道）</strong></td>
+                        <td>处理Spider返回的数据</td>
+                        <td>数据清洗、验证、存储到SQLite/Neo4j</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Middleware（中间件）</strong></td>
+                        <td>处理请求和响应的钩子</td>
+                        <td>随机User-Agent、重试策略、数据合并</td>
+                    </tr>
+                </table>
+
+                <h3>2.2 HistoryGogo 项目结构</h3>
+                
+<pre><code>crawler/
+├── config/                 # 配置模块
+│   ├── settings.py         # Scrapy全局配置
+│   └── ming_data.py        # 明朝基础数据
+├── models/                 # 数据模型
+│   └── entities.py         # 实体定义（Emperor、Event、Person等）
+├── spiders/                # 爬虫模块
+│   ├── baidu_baike_spider.py    # 百度百科爬虫
+│   └── wikipedia_spider.py      # 维基百科爬虫
+├── pipelines/              # 数据管道
+│   ├── data_cleaning.py    # 数据清洗
+│   ├── data_validation.py  # 数据验证
+│   ├── sqlite_pipeline.py  # SQLite存储
+│   └── neo4j_pipeline.py   # Neo4j存储
+├── middlewares.py          # 中间件
+└── utils/                  # 工具函数
+    └── date_utils.py       # 日期解析工具
+</code></pre>
+            </section>
+
+            <!-- 配置详解 -->
+            <section id="config">
+                <h2>⚙️ 三、配置详解</h2>
+
+                <h3>3.1 基础配置（settings.py）</h3>
+
+                <h4>🔧 项目识别配置</h4>
+<pre><code># Bot名称 - 用于日志和识别
+BOT_NAME = 'historygogo_crawler'
+
+# Spider模块路径
+SPIDER_MODULES = ['crawler.spiders']
+NEWSPIDER_MODULE = 'crawler.spiders'
+</code></pre>
+
+                <h4>🌐 网络请求配置</h4>
+<pre><code># 遵守robots.txt规则（推荐开启）
+ROBOTSTXT_OBEY = True
+
+# 并发请求数（根据目标网站调整）
+CONCURRENT_REQUESTS = 8
+
+# 下载延迟（秒）- 避免被封
+DOWNLOAD_DELAY = 3
+
+# 下载延迟随机化（防止被识别为爬虫）
+RANDOMIZE_DOWNLOAD_DELAY = True
+
+# 请求超时时间
+DOWNLOAD_TIMEOUT = 30
+
+# 重试次数
+RETRY_TIMES = 3
+</code></pre>
+
+                <div class="warning-box">
+                    <h4>⚠️ 反爬虫注意事项</h4>
+                    <ul>
+                        <li><strong>合理设置延迟</strong>：DOWNLOAD_DELAY 至少 2-3 秒，避免给服务器造成压力</li>
+                        <li><strong>尊重 robots.txt</strong>：始终开启 ROBOTSTXT_OBEY</li>
+                        <li><strong>控制并发</strong>：CONCURRENT_REQUESTS 不要设置过大（建议 4-16）</li>
+                        <li><strong>使用缓存</strong>：避免重复请求同一URL</li>
+                    </ul>
+                </div>
+
+                <h4>👤 User-Agent 配置</h4>
+<pre><code># 默认 User-Agent
+USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ...'
+
+# 请求头配置
+DEFAULT_REQUEST_HEADERS = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+}
+</code></pre>
+
+                <h4>💾 HTTP缓存配置</h4>
+<pre><code># 启用HTTP缓存（大幅提升开发效率）
+HTTPCACHE_ENABLED = True
+HTTPCACHE_EXPIRATION_SECS = 86400  # 1天
+HTTPCACHE_DIR = 'crawler/data/httpcache'
+
+# 忽略这些状态码的缓存
+HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408, 429]
+</code></pre>
+
+                <div class="success-box">
+                    <h4>✅ 缓存的好处</h4>
+                    <ul>
+                        <li>开发调试时无需重复请求网页</li>
+                        <li>减少对目标网站的访问压力</li>
+                        <li>加快测试速度</li>
+                    </ul>
+                </div>
+
+                <h3>3.2 管道配置</h3>
+
+<pre><code>ITEM_PIPELINES = {
+    'crawler.pipelines.data_cleaning.DataCleaningPipeline': 100,
+    'crawler.pipelines.data_validation.DataValidationPipeline': 200,
+    'crawler.pipelines.sqlite_pipeline.SQLitePipeline': 300,
+    'crawler.pipelines.neo4j_pipeline.Neo4jPipeline': 400,
+}
+</code></pre>
+
+                <p>
+                    <strong>数字表示优先级</strong>，数值越小优先级越高。数据按顺序经过：
+                    数据清洗 → 数据验证 → SQLite存储 → Neo4j存储
+                </p>
+
+                <h3>3.3 中间件配置</h3>
+
+<pre><code>DOWNLOADER_MIDDLEWARES = {
+    'crawler.middlewares.RandomUserAgentMiddleware': 400,
+    'crawler.middlewares.RetryMiddleware': 500,
+}
+</code></pre>
+
+                <h3>3.4 数据库配置</h3>
+
+<pre><code># SQLite数据库路径
+SQLITE_DB_PATH = 'server/database/historygogo.db'
+
+# Neo4j数据库配置
+NEO4J_URI = 'bolt://localhost:7687'
+NEO4J_USER = 'neo4j'
+NEO4J_PASSWORD = 'your_password'
+</code></pre>
+
+                <h3>3.5 自定义配置</h3>
+
+<pre><code># 爬取模式：'test' 测试模式 或 'full' 全量爬取
+CRAWL_MODE = 'test'
+
+# 测试模式下爬取的皇帝数量
+TEST_EMPEROR_COUNT = 3
+
+# 验证报告路径
+VALIDATION_REPORT_PATH = 'crawler/data/reports/validation_report.json'
+</code></pre>
+            </section>
+
+            <!-- 运行流程 -->
+            <section id="workflow">
+                <h2>🔄 四、运行流程</h2>
+
+                <h3>4.1 Scrapy 执行流程</h3>
+
+                <div class="diagram">
+                    <h4>详细执行流程</h4>
+                    <ol style="text-align: left; max-width: 800px; margin: 20px auto;">
+                        <li><strong>Engine</strong> 从 <strong>Spider</strong> 获取初始请求（start_requests）</li>
+                        <li><strong>Engine</strong> 将请求交给 <strong>Scheduler</strong> 调度</li>
+                        <li><strong>Engine</strong> 从 <strong>Scheduler</strong> 获取下一个请求</li>
+                        <li><strong>Engine</strong> 通过下载中间件将请求发送给 <strong>Downloader</strong></li>
+                        <li><strong>Downloader</strong> 下载页面，通过下载中间件返回响应给 <strong>Engine</strong></li>
+                        <li><strong>Engine</strong> 将响应通过爬虫中间件发送给 <strong>Spider</strong> 处理</li>
+                        <li><strong>Spider</strong> 处理响应，返回 Item 和新的 Request</li>
+                        <li><strong>Engine</strong> 将 Item 发送给 <strong>Pipeline</strong> 处理</li>
+                        <li><strong>Engine</strong> 将新的 Request 发送给 <strong>Scheduler</strong></li>
+                        <li>重复步骤 3-9，直到 <strong>Scheduler</strong> 中没有更多请求</li>
+                    </ol>
+                </div>
+
+                <h3>4.2 HistoryGogo 爬取流程</h3>
+
+                <h4>第一步：启动爬虫</h4>
+<pre><code># 测试模式（只爬取前3位皇帝）
+python run_crawler.py --mode test --spider baidu_baike
+
+# 全量爬取模式
+python run_crawler.py --mode full --spider baidu_baike
+</code></pre>
+
+                <h4>第二步：生成初始请求</h4>
+<pre><code>def start_requests(self):
+    """生成起始请求"""
+    # 根据爬取模式决定爬取多少位皇帝
+    emperors_to_crawl = MING_EMPERORS
+    if self.crawl_mode == 'test':
+        emperors_to_crawl = MING_EMPERORS[:self.test_emperor_count]
+    
+    # 为每位皇帝生成请求
+    for emperor_info in emperors_to_crawl:
+        url = f"https://baike.baidu.com/item/{emperor_info['name']}"
+        yield scrapy.Request(
+            url=url,
+            callback=self.parse_emperor,
+            meta={'emperor_info': emperor_info}
+        )
+</code></pre>
+
+                <h4>第三步：解析皇帝页面</h4>
+<pre><code>def parse_emperor(self, response):
+    """解析皇帝页面"""
+    # 1. 提取皇帝基本信息
+    emperor_data = self._extract_emperor_data(soup, emperor_info)
+    
+    # 2. 创建 Emperor 实体并yield（进入Pipeline）
+    emperor = self._create_emperor_entity(emperor_data, emperor_info)
+    yield emperor
+    
+    # 3. 提取该皇帝相关的事件链接
+    event_links = self._extract_event_links(soup)
+    for event_name in event_links[:10]:
+        url = self._build_baidu_url(event_name)
+        yield scrapy.Request(
+            url=url,
+            callback=self.parse_event,
+            meta={'emperor_id': emperor_id}
+        )
+    
+    # 4. 提取相关人物链接
+    person_links = self._extract_person_links(soup)
+    for person_name in person_links[:20]:
+        url = self._build_baidu_url(person_name)
+        yield scrapy.Request(
+            url=url,
+            callback=self.parse_person,
+            meta={'emperor_id': emperor_id}
+        )
+</code></pre>
+
+                <h4>第四步：数据进入Pipeline处理</h4>
+                <div class="flow-chart" style="justify-content: flex-start;">
+                    <div class="flow-item">数据清洗<br>去除空白、规范化</div>
+                    <span class="flow-arrow"></span>
+                    <div class="flow-item">数据验证<br>检查必填字段</div>
+                    <span class="flow-arrow"></span>
+                    <div class="flow-item">SQLite存储<br>关系型数据</div>
+                    <span class="flow-arrow"></span>
+                    <div class="flow-item">Neo4j存储<br>图数据库</div>
+                </div>
+
+                <h3>4.3 并发与异步</h3>
+
+                <div class="info-box">
+                    <h4>🚀 Scrapy 的异步优势</h4>
+                    <p>
+                        Scrapy 基于 <strong>Twisted</strong> 异步框架，能够同时处理多个请求而不阻塞。
+                        当一个请求在等待网络响应时，引擎可以同时处理其他请求。
+                    </p>
+                    <p>
+                        <strong>举例</strong>：设置 <code>CONCURRENT_REQUESTS = 8</code>，
+                        Scrapy 可以同时发送8个请求。如果每个请求需要2秒响应，理论上
+                        <span class="highlight">每2秒可以完成8个请求</span>，
+                        而同步方式需要16秒。
+                    </p>
+                </div>
+            </section>
+
+            <!-- Spider开发 -->
+            <section id="spider">
+                <h2>🕷️ 五、Spider 开发</h2>
+
+                <h3>5.1 Spider 基础结构</h3>
+
+<pre><code>import scrapy
+
+class BaiduBaikeSpider(scrapy.Spider):
+    """百度百科爬虫"""
+    
+    # Spider 唯一标识
+    name = 'baidu_baike'
+    
+    # 允许爬取的域名
+    allowed_domains = ['baike.baidu.com']
+    
+    # 自定义配置（覆盖settings.py）
+    custom_settings = {
+        'DOWNLOAD_DELAY': 3,
+        'RANDOMIZE_DOWNLOAD_DELAY': True,
+        'CONCURRENT_REQUESTS': 4,
+    }
+    
+    def __init__(self, crawl_mode='test', *args, **kwargs):
+        """初始化"""
+        super().__init__(*args, **kwargs)
+        self.crawl_mode = crawl_mode
+    
+    def start_requests(self):
+        """生成初始请求"""
+        for emperor_info in MING_EMPERORS:
+            yield scrapy.Request(
+                url=f"https://baike.baidu.com/item/{emperor_info['name']}",
+                callback=self.parse
+            )
+    
+    def parse(self, response):
+        """默认解析方法"""
+        # 提取数据
+        # yield Item 或新的 Request
+        pass
+</code></pre>
+
+                <h3>5.2 数据提取</h3>
+
+                <h4>使用 BeautifulSoup 解析</h4>
+<pre><code>from bs4 import BeautifulSoup
+
+def parse_emperor(self, response):
+    soup = BeautifulSoup(response.text, 'lxml')
+    
+    # 提取标题
+    title = soup.select_one('.lemmaWgt-lemmaTitle-title h1').get_text()
+    
+    # 提取信息框
+    info_box = soup.select_one('.basic-info')
+    if info_box:
+        birth_elem = info_box.find('dt', text=re.compile('出生日期'))
+        if birth_elem:
+            birth_text = birth_elem.find_next_sibling('dd').get_text(strip=True)
+    
+    # 提取简介
+    summary = soup.select_one('.lemma-summary')
+    if summary:
+        paragraphs = summary.find_all('div', class_='para')
+        biography = paragraphs[0].get_text()
+</code></pre>
+
+                <h4>使用 Scrapy 选择器</h4>
+<pre><code>def parse(self, response):
+    # CSS 选择器
+    title = response.css('.lemmaWgt-lemmaTitle-title h1::text').get()
+    
+    # XPath 选择器
+    paragraphs = response.xpath('//div[@class="para"]/text()').getall()
+    
+    # 提取所有链接
+    links = response.css('a::attr(href)').getall()
+</code></pre>
+
+                <h3>5.3 请求传递数据</h3>
+
+                <p>使用 <code>meta</code> 在请求间传递数据：</p>
+
+<pre><code>def parse_emperor(self, response):
+    emperor_id = "ming_emperor_001"
+    
+    # 生成事件请求，传递 emperor_id
+    yield scrapy.Request(
+        url="https://baike.baidu.com/item/靖难之役",
+        callback=self.parse_event,
+        meta={'emperor_id': emperor_id}
+    )
+
+def parse_event(self, response):
+    # 获取传递的数据
+    emperor_id = response.meta['emperor_id']
+    
+    event = Event(
+        emperor_id=emperor_id,
+        title=response.css('h1::text').get()
+    )
+    yield event
+</code></pre>
+
+                <h3>5.4 错误处理</h3>
+
+<pre><code>def parse_emperor(self, response):
+    try:
+        soup = BeautifulSoup(response.text, 'lxml')
+        emperor_data = self._extract_emperor_data(soup, emperor_info)
+        
+        if emperor_data:
+            self.logger.info(f"成功爬取皇帝: {emperor_data['name']}")
+            yield emperor_data
+        else:
+            self.logger.warning(f"未能提取到皇帝数据")
+    
+    except Exception as e:
+        self.logger.error(f"解析皇帝页面失败: {str(e)}")
+</code></pre>
+
+                <h3>5.5 链接提取策略</h3>
+
+                <h4>提取事件链接（基于关键词）</h4>
+<pre><code>def _extract_event_links(self, soup):
+    """提取事件相关链接"""
+    events = []
+    content = soup.select_one('.main-content')
+    
+    # 事件关键词
+    event_keywords = ['之役', '之战', '之变', '政变', '起义', '改革']
+    
+    links = content.find_all('a', href=True)
+    for link in links:
+        link_text = link.get_text(strip=True)
+        if any(keyword in link_text for keyword in event_keywords):
+            events.append(link_text)
+    
+    return list(set(events))[:15]  # 去重并限制数量
+</code></pre>
+
+                <h4>提取人物链接（基于长度）</h4>
+<pre><code>def _extract_person_links(self, soup):
+    """提取人物相关链接"""
+    persons = []
+    links = soup.find_all('a', href=True)
+    
+    for link in links:
+        link_text = link.get_text(strip=True)
+        # 人名通常是2-4个中文字符
+        if 2 <= len(link_text) <= 4:
+            if all('\u4e00' <= c <= '\u9fff' for c in link_text):
+                persons.append(link_text)
+    
+    return list(set(persons))[:25]
+</code></pre>
+            </section>
+
+            <!-- Pipeline管道 -->
+            <section id="pipeline">
+                <h2>📊 六、Pipeline 数据管道</h2>
+
+                <h3>6.1 Pipeline 基础结构</h3>
+
+<pre><code>class DataCleaningPipeline:
+    """数据清洗管道"""
+    
+    def open_spider(self, spider):
+        """爬虫启动时调用"""
+        spider.logger.info("数据清洗管道已启动")
+    
+    def close_spider(self, spider):
+        """爬虫关闭时调用"""
+        spider.logger.info("数据清洗管道已关闭")
+    
+    def process_item(self, item, spider):
+        """处理每个Item"""
+        # 清洗逻辑
+        if isinstance(item, Emperor):
+            item.name = item.name.strip()
+            if item.biography:
+                item.biography = self._clean_text(item.biography)
+        
+        return item  # 必须返回item传递给下一个管道
+</code></pre>
+
+                <h3>6.2 数据清洗管道</h3>
+
+<pre><code>class DataCleaningPipeline:
+    """数据清洗管道"""
+    
+    def process_item(self, item, spider):
+        """清洗数据"""
+        if isinstance(item, Emperor):
+            # 去除多余空白
+            item.name = self._clean_text(item.name)
+            item.biography = self._clean_text(item.biography)
+            
+            # 处理None值
+            if not item.temple_name:
+                item.temple_name = f"{item.name}（庙号未知）"
+        
+        elif isinstance(item, Event):
+            # 规范化地点名称
+            if item.location:
+                item.location = self._normalize_location(item.location)
+        
+        return item
+    
+    def _clean_text(self, text):
+        """清洗文本"""
+        if not text:
+            return None
+        # 去除多余空白
+        text = ' '.join(text.split())
+        # 去除特殊字符
+        text = re.sub(r'[\r\n\t]', '', text)
+        return text.strip()
+</code></pre>
+
+                <h3>6.3 数据验证管道</h3>
+
+<pre><code>class DataValidationPipeline:
+    """数据验证管道"""
+    
+    def __init__(self):
+        self.validation_errors = []
+    
+    def process_item(self, item, spider):
+        """验证数据"""
+        errors = []
+        
+        if isinstance(item, Emperor):
+            # 必填字段检查
+            if not item.name:
+                errors.append("缺少皇帝姓名")
+            if not item.reign_start:
+                errors.append("缺少在位开始时间")
+            
+            # 逻辑检查
+            if item.birth_date and item.death_date:
+                if item.birth_date > item.death_date:
+                    errors.append("出生日期晚于去世日期")
+        
+        if errors:
+            self.validation_errors.append({
+                'item_type': type(item).__name__,
+                'item_id': getattr(item, f'{type(item).__name__.lower()}_id', 'unknown'),
+                'errors': errors
+            })
+            spider.logger.warning(f"数据验证失败: {errors}")
+        
+        return item
+</code></pre>
+
+                <h3>6.4 SQLite 持久化管道</h3>
+
+<pre><code>class SQLitePipeline:
+    """SQLite持久化管道"""
+    
+    def __init__(self, db_path):
+        self.db_manager = SQLiteManager(db_path)
+        self.stats = {'emperors': 0, 'events': 0, 'persons': 0}
+    
+    def open_spider(self, spider):
+        """打开数据库连接"""
+        self.db_manager.connect()
+    
+    def close_spider(self, spider):
+        """关闭数据库并输出统计"""
+        spider.logger.info(f"SQLite持久化统计: {self.stats}")
+        self.db_manager.close()
+    
+    def process_item(self, item, spider):
+        """保存数据"""
+        if isinstance(item, Emperor):
+            self._save_emperor(item, spider)
+            self.stats['emperors'] += 1
+        elif isinstance(item, Event):
+            self._save_event(item, spider)
+            self.stats['events'] += 1
+        
+        return item
+    
+    def _save_emperor(self, emperor, spider):
+        """保存皇帝数据"""
+        sql = """
+        INSERT OR REPLACE INTO emperors (
+            emperor_id, name, temple_name, birth_date, ...
+        ) VALUES (?, ?, ?, ?, ...)
+        """
+        params = (emperor.emperor_id, emperor.name, ...)
+        self.db_manager.execute(sql, params)
+</code></pre>
+
+                <h3>6.5 Pipeline 链式处理</h3>
+
+                <div class="info-box">
+                    <h4>💡 Pipeline 执行顺序</h4>
+                    <p>Pipeline按优先级顺序执行，数据依次流过所有管道：</p>
+                    <ol>
+                        <li><strong>DataCleaningPipeline (100)</strong> - 清洗数据</li>
+                        <li><strong>DataValidationPipeline (200)</strong> - 验证数据</li>
+                        <li><strong>SQLitePipeline (300)</strong> - 存储到SQLite</li>
+                        <li><strong>Neo4jPipeline (400)</strong> - 存储到Neo4j</li>
+                    </ol>
+                    <p>如果某个Pipeline返回None，数据流中断，后续Pipeline不会执行。</p>
+                </div>
+            </section>
+
+            <!-- 中间件 -->
+            <section id="middleware">
+                <h2>🔌 七、中间件开发</h2>
+
+                <h3>7.1 下载中间件</h3>
+
+                <h4>随机 User-Agent 中间件</h4>
+<pre><code>from fake_useragent import UserAgent
+
+class RandomUserAgentMiddleware:
+    """随机User-Agent中间件"""
+    
+    def __init__(self):
+        self.ua = UserAgent()
+    
+    def process_request(self, request, spider):
+        """为每个请求设置随机User-Agent"""
+        try:
+            request.headers['User-Agent'] = self.ua.random
+        except Exception:
+            # 如果获取失败，使用默认UA
+            request.headers['User-Agent'] = 'Mozilla/5.0 ...'
+        
+        return None  # 返回None继续处理
+</code></pre>
+
+                <h4>自定义重试中间件</h4>
+<pre><code>import time
+import random
+
+class RetryMiddleware:
+    """自定义重试中间件"""
+    
+    def __init__(self, max_retry_times=3):
+        self.max_retry_times = max_retry_times
+    
+    def process_response(self, request, response, spider):
+        """处理响应"""
+        # 如果是429（太多请求），增加延迟后重试
+        if response.status == 429:
+            retry_times = request.meta.get('retry_times', 0) + 1
+            
+            if retry_times <= self.max_retry_times:
+                spider.logger.warning(
+                    f"收到429错误，等待后重试 (第{retry_times}次)"
+                )
+                time.sleep(random.randint(5, 10))  # 等待5-10秒
+                
+                retryreq = request.copy()
+                retryreq.meta['retry_times'] = retry_times
+                return retryreq
+        
+        return response
+</code></pre>
+
+                <h3>7.2 爬虫中间件</h3>
+
+                <h4>数据合并中间件（双源互补）</h4>
+<pre><code>class DataMergeMiddleware:
+    """数据合并中间件
+    
+    合并来自百度百科和维基百科的数据
+    """
+    
+    def __init__(self):
+        self.data_cache = {}
+    
+    def process_item(self, item, spider):
+        """合并数据"""
+        item_id = self._get_item_id(item)
+        
+        if item_id in self.data_cache:
+            # 缓存中已有该数据，执行合并
+            cached_item = self.data_cache[item_id]
+            merged_item = self._merge_items(cached_item, item, spider)
+            self.data_cache[item_id] = merged_item
+            return merged_item
+        else:
+            # 首次遇到，加入缓存
+            self.data_cache[item_id] = item
+            return item
+    
+    def _merge_items(self, item1, item2, spider):
+        """合并两个数据项
+        
+        策略：
+        1. 优先使用百度百科的结构化字段
+        2. 使用维基百科补充详细描述
+        3. 列表字段取并集
+        """
+        baidu_item = item1 if item1.data_source == 'baidu' else item2
+        wiki_item = item2 if item2.data_source == 'wikipedia' else item1
+        
+        merged = baidu_item
+        
+        # 补充空缺字段
+        for field in ['biography', 'description', 'achievements']:
+            wiki_value = getattr(wiki_item, field, None)
+            merged_value = getattr(merged, field, None)
+            
+            # 如果百度数据为空，使用维基数据
+            if not merged_value and wiki_value:
+                setattr(merged, field, wiki_value)
+        
+        merged.data_source = 'baidu,wikipedia'
+        return merged
+</code></pre>
+
+                <h3>7.3 中间件执行顺序</h3>
+
+                <div class="warning-box">
+                    <h4>⚠️ 中间件优先级</h4>
+                    <p><strong>下载中间件</strong>（Downloader Middleware）：</p>
+                    <ul>
+                        <li><code>process_request</code>：数字越小越先执行</li>
+                        <li><code>process_response</code>：数字越大越先执行（反向）</li>
+                    </ul>
+                    <p><strong>爬虫中间件</strong>（Spider Middleware）：</p>
+                    <ul>
+                        <li>数字越小优先级越高</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- 最佳实践 -->
+            <section id="bestpractices">
+                <h2>💡 八、最佳实践与开发注意事项</h2>
+
+                <h3>8.1 反爬虫策略</h3>
+
+                <div class="danger-box">
+                    <h4>🛡️ 常见反爬机制及应对</h4>
+                    <table>
+                        <tr>
+                            <th>反爬机制</th>
+                            <th>应对策略</th>
+                        </tr>
+                        <tr>
+                            <td>User-Agent检测</td>
+                            <td>使用RandomUserAgentMiddleware轮换UA</td>
+                        </tr>
+                        <tr>
+                            <td>IP限制</td>
+                            <td>增加DOWNLOAD_DELAY，使用代理池</td>
+                        </tr>
+                        <tr>
+                            <td>频率限制</td>
+                            <td>启用RANDOMIZE_DOWNLOAD_DELAY，控制并发</td>
+                        </tr>
+                        <tr>
+                            <td>Cookie验证</td>
+                            <td>启用COOKIES_ENABLED，保持会话</td>
+                        </tr>
+                        <tr>
+                            <td>JavaScript渲染</td>
+                            <td>使用Splash或Selenium中间件</td>
+                        </tr>
+                        <tr>
+                            <td>验证码</td>
+                            <td>OCR识别或人工介入</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <h3>8.2 性能优化</h3>
+
+                <h4>✅ 合理配置并发</h4>
+<pre><code># 根据目标网站调整
+CONCURRENT_REQUESTS = 16  # 默认16，可适当增加
+CONCURRENT_REQUESTS_PER_DOMAIN = 8  # 单域名并发
+CONCURRENT_REQUESTS_PER_IP = 4  # 单IP并发
+</code></pre>
+
+                <h4>✅ 使用HTTP缓存</h4>
+<pre><code>HTTPCACHE_ENABLED = True
+HTTPCACHE_EXPIRATION_SECS = 86400  # 1天
+</code></pre>
+
+                <h4>✅ 禁用不必要的中间件</h4>
+<pre><code># 如果不需要Cookie，可以禁用
+COOKIES_ENABLED = False
+
+# 禁用某些默认中间件
+DOWNLOADER_MIDDLEWARES = {
+    'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
+}
+</code></pre>
+
+                <h3>8.3 数据质量保证</h3>
+
+                <h4>✅ 多源数据互补</h4>
+                <div class="success-box">
+                    <p>
+                        HistoryGogo 采用<strong>双源爬取策略</strong>：
+                        同时从百度百科和维基百科抓取数据，通过 DataMergeMiddleware 合并，
+                        提高数据完整性和准确性。
+                    </p>
+                </div>
+
+                <h4>✅ 数据验证</h4>
+<pre><code># 必填字段检查
+if not emperor.name:
+    raise ValueError("缺少皇帝姓名")
+
+# 逻辑验证
+if emperor.birth_date > emperor.death_date:
+    raise ValueError("出生日期晚于去世日期")
+
+# 格式验证
+if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+    raise ValueError("日期格式不正确")
+</code></pre>
+
+                <h4>✅ 异常处理</h4>
+<pre><code>def parse_emperor(self, response):
+    try:
+        # 解析逻辑
+        emperor_data = self._extract_emperor_data(soup)
+        yield emperor_data
+    except Exception as e:
+        self.logger.error(f"解析失败: {str(e)}")
+        # 可选：发送错误通知、记录到数据库等
+</code></pre>
+
+                <h3>8.4 日志与监控</h3>
+
+                <h4>✅ 合理使用日志级别</h4>
+<pre><code># settings.py
+LOG_LEVEL = 'INFO'  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# spider中
+self.logger.debug("调试信息")
+self.logger.info("爬取成功")
+self.logger.warning("数据不完整")
+self.logger.error("解析失败")
+</code></pre>
+
+                <h4>✅ 输出统计信息</h4>
+<pre><code>def close_spider(self, spider):
+    """爬虫关闭时输出统计"""
+    spider.logger.info(
+        f"爬取统计: "
+        f"皇帝={self.stats['emperors']}, "
+        f"事件={self.stats['events']}, "
+        f"人物={self.stats['persons']}"
+    )
+</code></pre>
+
+                <h3>8.5 测试与调试</h3>
+
+                <h4>✅ Scrapy Shell</h4>
+<pre><code># 启动shell调试
+scrapy shell 'https://baike.baidu.com/item/朱元璋'
+
+# 在shell中测试选择器
+>>> response.css('.lemmaWgt-lemmaTitle-title h1::text').get()
+'朱元璋'
+
+>>> response.xpath('//div[@class="para"]/text()').getall()
+</code></pre>
+
+                <h4>✅ 测试模式</h4>
+<pre><code># 使用测试模式（只爬取少量数据）
+python run_crawler.py --mode test --spider baidu_baike
+
+# 在Spider中实现
+if self.crawl_mode == 'test':
+    emperors_to_crawl = MING_EMPERORS[:3]  # 只爬3位皇帝
+</code></pre>
+
+                <h3>8.6 代码规范</h3>
+
+                <div class="info-box">
+                    <h4>📝 编码建议</h4>
+                    <ul>
+                        <li><strong>模块化设计</strong>：将数据提取、清洗、验证逻辑分离</li>
+                        <li><strong>使用dataclass</strong>：定义清晰的数据模型</li>
+                        <li><strong>异常处理</strong>：每个关键环节都要捕获异常</li>
+                        <li><strong>日志记录</strong>：记录关键操作和错误信息</li>
+                        <li><strong>配置化</strong>：避免硬编码，使用settings配置</li>
+                        <li><strong>文档注释</strong>：为类和方法添加docstring</li>
+                    </ul>
+                </div>
+
+                <h3>8.7 常见问题与解决方案</h3>
+
+                <table>
+                    <tr>
+                        <th>问题</th>
+                        <th>原因</th>
+                        <th>解决方案</th>
+                    </tr>
+                    <tr>
+                        <td>返回空Response</td>
+                        <td>robots.txt禁止、被封IP</td>
+                        <td>检查ROBOTSTXT_OBEY，增加延迟</td>
+                    </tr>
+                    <tr>
+                        <td>选择器提取失败</td>
+                        <td>页面结构变化、JS渲染</td>
+                        <td>检查HTML结构，考虑使用Splash</td>
+                    </tr>
+                    <tr>
+                        <td>数据重复</td>
+                        <td>URL去重失败</td>
+                        <td>检查dont_filter参数，使用数据库唯一约束</td>
+                    </tr>
+                    <tr>
+                        <td>内存占用过高</td>
+                        <td>并发过大、缓存过多</td>
+                        <td>降低CONCURRENT_REQUESTS，限制缓存大小</td>
+                    </tr>
+                    <tr>
+                        <td>Pipeline未执行</td>
+                        <td>未在settings中配置</td>
+                        <td>检查ITEM_PIPELINES配置</td>
+                    </tr>
+                </table>
+
+                <h3>8.8 项目实战技巧</h3>
+
+                <h4>✅ 增量爬取</h4>
+<pre><code># 检查数据是否已存在
+def should_crawl(self, emperor_id):
+    """检查是否需要爬取"""
+    exists = self.db_manager.exists('emperors', emperor_id)
+    return not exists
+
+def start_requests(self):
+    for emperor_info in MING_EMPERORS:
+        emperor_id = generate_id("ming_emperor", emperor_info['name'])
+        if self.should_crawl(emperor_id):
+            yield scrapy.Request(...)
+</code></pre>
+
+                <h4>✅ 断点续爬</h4>
+<pre><code># 启用任务持久化
+JOBDIR = 'crawler/data/jobs/baidu_baike'
+
+# 运行时Scrapy会自动保存进度
+# 中断后再次运行会从断点继续
+</code></pre>
+
+                <h4>✅ 生成统计报告</h4>
+<pre><code>def close_spider(self, spider):
+    """生成验证报告"""
+    report = {
+        'total_items': self.total_items,
+        'valid_items': self.valid_items,
+        'errors': self.validation_errors,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    with open(self.report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+</code></pre>
+
+                <div class="success-box">
+                    <h4>🎓 学习建议</h4>
+                    <ol>
+                        <li><strong>从简单开始</strong>：先爬取单个页面，逐步增加复杂度</li>
+                        <li><strong>使用Scrapy Shell</strong>：调试选择器非常高效</li>
+                        <li><strong>阅读官方文档</strong>：Scrapy文档非常详细</li>
+                        <li><strong>研究实际项目</strong>：如HistoryGogo，学习架构设计</li>
+                        <li><strong>遵守网络礼仪</strong>：尊重robots.txt，控制爬取频率</li>
+                    </ol>
+                </div>
+            </section>
+
+            <!-- 总结 -->
+            <section>
+                <h2>📚 总结</h2>
+                
+                <p>
+                    Scrapy 是一个功能强大、设计优雅的爬虫框架，通过本文档的学习，
+                    你应该已经掌握了 Scrapy 的核心概念和实战技巧。
+                </p>
+
+                <div class="info-box">
+                    <h4>🎯 关键要点回顾</h4>
+                    <ol>
+                        <li><strong>架构理解</strong>：Engine、Scheduler、Downloader、Spider、Pipeline 各司其职</li>
+                        <li><strong>配置优化</strong>：合理设置延迟、并发、缓存等参数</li>
+                        <li><strong>Spider开发</strong>：掌握请求生成、数据提取、链接跟踪</li>
+                        <li><strong>Pipeline处理</strong>：数据清洗、验证、持久化的流水线处理</li>
+                        <li><strong>中间件应用</strong>：通过中间件实现反爬、数据合并等功能</li>
+                        <li><strong>最佳实践</strong>：遵守网络礼仪，保证数据质量，优化性能</li>
+                    </ol>
+                </div>
+
+                <div class="success-box">
+                    <h4>🚀 下一步</h4>
+                    <ul>
+                        <li>深入学习 Scrapy 官方文档：<a href="https://docs.scrapy.org" target="_blank">https://docs.scrapy.org</a></li>
+                        <li>研究 HistoryGogo 项目源码，理解实际应用</li>
+                        <li>尝试开发自己的爬虫项目</li>
+                        <li>探索分布式爬虫框架 Scrapy-Redis</li>
+                        <li>学习反反爬技术，如使用 Splash、Selenium</li>
+                    </ul>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>📅 文档生成时间：2024年12月</p>
+            <p>🏛️ HistoryGogo 项目 - 让历史数据触手可及</p>
+            <p>💻 Powered by Scrapy Framework</p>
+        </footer>
+    </div>
+</body>
+</html>

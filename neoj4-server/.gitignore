@@ -1,0 +1,7 @@
+# Neo4j 数据目录（不提交到 git）
+data/
+logs/
+import/
+
+# 但保留目录结构说明
+!.gitkeep
