@@ -26,7 +26,7 @@ class BaiduBaikeSpider(scrapy.Spider):
         'CONCURRENT_REQUESTS': 4,
     }
     
-    def __init__(self, crawl_mode='test', test_emperor_count=3, *args, **kwargs):
+    def __init__(self, crawl_mode='test', test_emperor_count=1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.date_parser = DateParser()
         self.emperor_data = {}  # 存储已爬取的皇帝数据
@@ -86,6 +86,9 @@ class BaiduBaikeSpider(scrapy.Spider):
     def parse_emperor(self, response):
         """解析皇帝页面"""
         emperor_info = response.meta['emperor_info']
+
+
+        self.logger.info(f"📥 接收到皇帝页面: {emperor_info}")
         emperor_name = emperor_info['name']
         
         self.logger.info(f"\n{'='*80}")
@@ -166,63 +169,344 @@ class BaiduBaikeSpider(scrapy.Spider):
             self.logger.error(f"   错误类型: {type(e).__name__}\n")
     
     def _extract_emperor_data(self, soup: BeautifulSoup, emperor_info: Dict) -> Optional[Dict[str, Any]]:
-        """从页面中提取皇帝数据"""
+        """从页面中提取皇帝数据
+        
+        百度百科已升级为动态加载，数据以JSON形式嵌入在script标签中
+        同时保留传统DOM解析作为备用方案
+        """
         data = {
             'name': emperor_info['name'],
             'temple_name': emperor_info.get('temple_name'),
             'reign_title': emperor_info.get('reign_title'),
             'biography': '',
             'achievements': '',
-            'portrait_url': None
+            'portrait_url': None,
+            'infobox_data': {},  # 存储infobox中的所有信息
+            'biography_html': ''  # 存储生平HTML内容
         }
         
         try:
+            self.logger.info("  📋 开始提取皇帝详细信息...")
+            
+            # 方法1: 尝试从script标签中提取JSON数据（百度百科新版）
+            self.logger.info("  🔍 尝试从JSON提取数据...")
+            json_data_extracted = self._extract_from_json(soup, data)
+            
+            # 方法2: 传统DOM解析（作为备用）
+            if not json_data_extracted:
+                self.logger.info("  → JSON提取未成功，使用传统DOM解析方式")
+                self._extract_from_dom(soup, data)
+            else:
+                self.logger.info("  ✓ 成功从JSON提取数据")
+            
+            # 方法3: 提取infobox中的<tr>标签信息
+            self.logger.info("  🔍 提取infobox表格数据...")
+            self._extract_infobox_table(soup, data)
+            
+            # 记录提取结果
+            self.logger.info(f"  📊 提取结果统计:")
+            self.logger.info(f"     - 出生日期: {'✓' if data.get('birth_date') else '✗'}")
+            self.logger.info(f"     - 去世日期: {'✓' if data.get('death_date') else '✗'}")
+            self.logger.info(f"     - 简介长度: {len(data.get('biography', ''))} 字符")
+            self.logger.info(f"     - 成就长度: {len(data.get('achievements', ''))} 字符")
+            self.logger.info(f"     - 画像URL: {'✓' if data.get('portrait_url') else '✗'}")
+            self.logger.info(f"     - Infobox字段: {len(data.get('infobox_data', {}))} 项")
+        
+        except Exception as e:
+            self.logger.error(f"  ❌ 提取皇帝详细信息时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"  错误堆栈: {traceback.format_exc()}")
+        
+        return data
+    
+    def _extract_from_json(self, soup: BeautifulSoup, data: Dict) -> bool:
+        """从页面中的JSON数据提取信息（百度百科新版）"""
+        try:
+            import json
+            
+            # 查找包含lemmaBasicInfo的script标签
+            for script in soup.find_all('script'):
+                if not script.string:
+                    continue
+                    
+                script_text = script.string
+                
+                # 查找基础信息JSON
+                if '"lemmaBasicInfo"' in script_text or '"basicInfo"' in script_text:
+                    # 提取出生日期
+                    birth_match = re.search(r'"dateOfBirth".*?"text":\[\{"tag":"text","text":"([^"]+)"', script_text)
+                    if birth_match:
+                        birth_text = birth_match.group(1)
+                        data['birth_date'] = self.date_parser.parse_chinese_date(birth_text)
+                        self.logger.debug(f"    提取到出生日期: {birth_text}")
+                    
+                    # 提取逝世日期
+                    death_match = re.search(r'"dateOfDeath".*?"text":\[\{"tag":"text","text":"([^"]+)"', script_text)
+                    if death_match:
+                        death_text = death_match.group(1)
+                        data['death_date'] = self.date_parser.parse_chinese_date(death_text)
+                        self.logger.debug(f"    提取到逝世日期: {death_text}")
+                    
+                    # 提取主要成就
+                    achievement_match = re.search(r'"majorAchievement".*?"data":\[(.*?)\]\}', script_text)
+                    if achievement_match:
+                        achievement_json = achievement_match.group(1)
+                        # 提取所有成就文本
+                        achievement_texts = re.findall(r'"text":"([^"]+)"', achievement_json)
+                        if achievement_texts:
+                            data['achievements'] = '；'.join(achievement_texts)
+                            self.logger.debug(f"    提取到主要成就: {len(achievement_texts)}项")
+                
+                # 查找描述信息
+                if '"description"' in script_text:
+                    desc_match = re.search(r'"description":"([^"]+)"', script_text)
+                    if desc_match:
+                        description = desc_match.group(1)
+                        # 如果简介为空，使用描述
+                        if not data['biography']:
+                            data['biography'] = description
+                            self.logger.debug(f"    提取到描述: {len(description)}字符")
+            
+            # 检查是否成功提取到关键信息
+            if data.get('birth_date') or data.get('biography'):
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.debug(f"    JSON提取失败: {str(e)}")
+            return False
+    
+    def _extract_from_dom(self, soup: BeautifulSoup, data: Dict) -> None:
+        """从DOM结构提取信息（传统方式）"""
+        try:
+            self.logger.debug("    🔍 开始DOM解析...")
+            
             # 提取基础信息框
             info_box = soup.select_one('.basic-info')
             if info_box:
+                self.logger.debug("    ✓ 找到基础信息框")
+                
                 # 提取出生日期
-                birth_elem = info_box.find('dt', text=re.compile('出生日期|出生时间'))
+                birth_elem = info_box.find('dt', string=re.compile('出生日期|出生时间'))
                 if birth_elem and birth_elem.find_next_sibling('dd'):
                     birth_text = birth_elem.find_next_sibling('dd').get_text(strip=True)
                     data['birth_date'] = self.date_parser.parse_chinese_date(birth_text)
+                    self.logger.debug(f"    ✓ 提取出生日期: {birth_text}")
                 
                 # 提取去世日期
-                death_elem = info_box.find('dt', text=re.compile('逝世日期|逝世时间'))
+                death_elem = info_box.find('dt', string=re.compile('逝世日期|逝世时间'))
                 if death_elem and death_elem.find_next_sibling('dd'):
                     death_text = death_elem.find_next_sibling('dd').get_text(strip=True)
                     data['death_date'] = self.date_parser.parse_chinese_date(death_text)
+                    self.logger.debug(f"    ✓ 提取去世日期: {death_text}")
+            else:
+                self.logger.debug("    ✗ 未找到基础信息框")
             
-            # 提取简介（第一段）
+            # 提取简介 - 尝试多种选择器
+            biography_texts = []
+            
+            # 尝试1: lemma-summary
             summary = soup.select_one('.lemma-summary')
             if summary:
+                self.logger.debug("    ✓ 找到lemma-summary")
                 paragraphs = summary.find_all('div', class_='para')
-                if paragraphs:
-                    data['biography'] = clean_text(paragraphs[0].get_text())
+                for para in paragraphs[:3]:  # 提取前3段
+                    text = clean_text(para.get_text())
+                    if text:
+                        biography_texts.append(text)
+                self.logger.debug(f"    ✓ 提取了 {len(biography_texts)} 段简介")
             
-            # 提取主要成就
+            # 尝试2: 查找所有段落
+            if not biography_texts:
+                self.logger.debug("    → 尝试查找所有段落...")
+                all_paras = soup.find_all('div', class_='para')
+                for para in all_paras[:5]:  # 提取前5段
+                    text = clean_text(para.get_text())
+                    if text and len(text) > 50:  # 过滤太短的段落
+                        biography_texts.append(text)
+                self.logger.debug(f"    ✓ 从所有段落中提取了 {len(biography_texts)} 段")
+            
+            if biography_texts:
+                data['biography'] = '\n'.join(biography_texts)
+                self.logger.debug(f"    ✓ 简介总长度: {len(data['biography'])} 字符")
+            
+            # 提取主要成就 - 尝试多种方式
+            # 方式1: 查找data-title
             achievement_section = soup.find('div', {'data-title': '主要成就'})
             if achievement_section:
                 data['achievements'] = clean_text(achievement_section.get_text())
+                self.logger.debug(f"    ✓ 从data-title提取成就: {len(data['achievements'])} 字符")
+            
+            # 方式2: 查找包含"主要成就"的标题
+            if not data['achievements']:
+                for heading in soup.find_all(['h2', 'h3']):
+                    if '主要成就' in heading.get_text():
+                        # 提取该标题后的内容
+                        next_elem = heading.find_next_sibling()
+                        if next_elem:
+                            data['achievements'] = clean_text(next_elem.get_text())
+                            self.logger.debug(f"    ✓ 从标题提取成就: {len(data['achievements'])} 字符")
+                            break
             
             # 提取画像URL
             portrait = soup.select_one('.summary-pic img')
             if portrait and portrait.get('src'):
                 data['portrait_url'] = portrait['src']
+                self.logger.debug(f"    ✓ 提取画像URL: {data['portrait_url'][:60]}...")
         
         except Exception as e:
-            self.logger.warning(f"提取皇帝详细信息时出错: {str(e)}")
+            self.logger.error(f"    ❌ DOM提取出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"    错误堆栈: {traceback.format_exc()}")
+    
+    def _extract_infobox_table(self, soup: BeautifulSoup, data: Dict) -> None:
+        """
+        从infobox表格中提取<tr>标签信息
+        百度百科的基础信息通常在.basic-info表格中，每行是一个<tr>标签
+        """
+        try:
+            self.logger.debug("    🔍 开始提取infobox表格...")
+            
+            # 查找基础信息表格
+            # 百度百科可能使用: .basic-info, .basicInfo-block, table.infobox等
+            info_tables = []
+            
+            # 尝试多种选择器
+            selectors = [
+                '.basic-info',
+                '.basicInfo-block table',
+                'table.infobox',
+                '.lemma-table',
+            ]
+            
+            for selector in selectors:
+                table = soup.select_one(selector)
+                if table:
+                    info_tables.append(table)
+                    self.logger.debug(f"    ✓ 找到表格: {selector}")
+                    break
+            
+            if not info_tables:
+                self.logger.debug("    ⚠ 未找到infobox表格")
+                return
+            
+            # 遍历表格行
+            for table in info_tables:
+                rows = table.find_all('tr')
+                self.logger.debug(f"    📊 找到 {len(rows)} 行数据")
+                
+                row_count = 0
+                for row in rows:
+                    try:
+                        # 提取表头和表数据
+                        th = row.find(['th', 'dt'])
+                        td = row.find(['td', 'dd'])
+                        
+                        if not th or not td:
+                            continue
+                        
+                        row_count += 1
+                        field_name = clean_text(th.get_text())
+                        field_value = clean_text(td.get_text())
+                        
+                        if not field_name or not field_value:
+                            continue
+                        
+                        # 存储到infobox_data
+                        data['infobox_data'][field_name] = field_value
+                        self.logger.debug(f"    📌 [{row_count}] {field_name}: {field_value[:50]}...")
+                        
+                        # 根据字段名提取特定信息
+                        field_name_lower = field_name.lower()
+                        
+                        # 出生日期
+                        if any(keyword in field_name for keyword in ['出生日期', '出生时间', '出生', '生于']):
+                            if not data.get('birth_date'):
+                                parsed_date = self.date_parser.parse_chinese_date(field_value)
+                                if parsed_date:
+                                    data['birth_date'] = parsed_date
+                                    self.logger.debug(f"    ✓ 从表格提取出生日期: {field_value} -> {parsed_date}")
+                        
+                        # 去世日期
+                        elif any(keyword in field_name for keyword in ['逝世日期', '逝世时间', '逝世', '卒于', '去世']):
+                            if not data.get('death_date'):
+                                parsed_date = self.date_parser.parse_chinese_date(field_value)
+                                if parsed_date:
+                                    data['death_date'] = parsed_date
+                                    self.logger.debug(f"    ✓ 从表格提取去世日期: {field_value} -> {parsed_date}")
+                        
+                        # 在位时间
+                        elif any(keyword in field_name for keyword in ['在位时间', '在位', '统治时间']):
+                            data['infobox_data']['reign_period'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取在位时间: {field_value}")
+                        
+                        # 庙号
+                        elif any(keyword in field_name for keyword in ['庙号']):
+                            if not data.get('temple_name'):
+                                data['temple_name'] = field_value
+                                data['infobox_data']['temple_name'] = field_value
+                                self.logger.debug(f"    ✓ 从表格提取庙号: {field_value}")
+                        
+                        # 谥号
+                        elif any(keyword in field_name for keyword in ['谥号']):
+                            data['infobox_data']['posthumous_name'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取谥号: {field_value}")
+                        
+                        # 年号
+                        elif any(keyword in field_name for keyword in ['年号']):
+                            if not data.get('reign_title'):
+                                data['reign_title'] = field_value
+                                data['infobox_data']['era_name'] = field_value
+                                self.logger.debug(f"    ✓ 从表格提取年号: {field_value}")
+                        
+                        # 陵寝
+                        elif any(keyword in field_name for keyword in ['陵墓', '陵寝']):
+                            data['infobox_data']['tomb'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取陵寝: {field_value}")
+                        
+                        # 皇后
+                        elif any(keyword in field_name for keyword in ['皇后']):
+                            data['infobox_data']['empress'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取皇后: {field_value}")
+                        
+                    except Exception as row_error:
+                        self.logger.debug(f"    ⚠ 处理行时出错: {str(row_error)}")
+                        continue
+                
+                # 尝试提取图片URL
+                if not data.get('portrait_url'):
+                    img = table.find('img')
+                    if img and img.get('src'):
+                        # 处理相对路径
+                        img_url = img['src']
+                        if img_url.startswith('//'):
+                            img_url = 'https:' + img_url
+                        elif img_url.startswith('/'):
+                            img_url = 'https://baike.baidu.com' + img_url
+                        
+                        data['portrait_url'] = img_url
+                        data['infobox_data']['portrait_url'] = img_url
+                        self.logger.debug(f"    ✓ 从表格提取图片URL: {img_url[:60]}...")
+            
+            self.logger.debug(f"    ✓ Infobox表格提取完成，共 {len(data['infobox_data'])} 个字段")
         
-        return data
+        except Exception as e:
+            self.logger.error(f"    ❌ 提取infobox表格时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"    错误堆栈: {traceback.format_exc()}")
     
     def _create_emperor_entity(self, emperor_data: Dict, emperor_info: Dict) -> Emperor:
         """创建皇帝实体"""
         emperor_id = generate_id("ming_emperor", emperor_data['name'], emperor_info['dynasty_order'])
         
+        self.logger.info(f"  🔨 创建Emperor实体: {emperor_id}")
+        
         # 解析在位时间
         reign_years = emperor_info.get('reign_years', '')
         reign_start, reign_end = self._parse_reign_years(reign_years)
         
-        return Emperor(
+        emperor = Emperor(
             emperor_id=emperor_id,
             dynasty_id=MING_DYNASTY['dynasty_id'],
             name=emperor_data['name'],
@@ -236,8 +520,13 @@ class BaiduBaikeSpider(scrapy.Spider):
             biography=emperor_data.get('biography'),
             achievements=emperor_data.get('achievements'),
             portrait_url=emperor_data.get('portrait_url'),
+            html_content=emperor_data.get('biography_html', ''),
+            source_url=f"https://baike.baidu.com/item/{emperor_data['name']}",
             data_source='baidu'
         )
+        
+        self.logger.info(f"  ✓ Emperor实体创建成功")
+        return emperor
     
     def _parse_reign_years(self, reign_years_str: str) -> tuple:
         """解析在位年份"""
@@ -291,10 +580,17 @@ class BaiduBaikeSpider(scrapy.Spider):
         emperor_id = response.meta.get('emperor_id')
         emperor_name = response.meta.get('emperor_name')
         
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"📖 开始解析事件页面")
+        self.logger.info(f"   URL: {response.url}")
+        self.logger.info(f"   关联皇帝: {emperor_name} ({emperor_id})")
+        self.logger.info(f"{'='*60}")
+        
         try:
             soup = BeautifulSoup(response.text, 'lxml')
             
             # 提取事件数据
+            self.logger.info("🔍 开始提取事件数据...")
             event_data = self._extract_event_data(soup, emperor_id)
             
             if event_data:
@@ -313,16 +609,22 @@ class BaiduBaikeSpider(scrapy.Spider):
             self.stats['parse_errors'] += 1
             self.logger.error(f"❌ 解析事件页面失败: {response.url}")
             self.logger.error(f"   错误信息: {str(e)}")
+            import traceback
+            self.logger.debug(f"   错误堆栈: {traceback.format_exc()}")
     
     def _extract_event_data(self, soup: BeautifulSoup, emperor_id: str) -> Optional[Dict]:
         """从页面中提取事件数据"""
         try:
+            self.logger.debug("  🔍 开始提取事件详细信息...")
+            
             # 获取标题
             title_elem = soup.select_one('.lemmaWgt-lemmaTitle-title h1')
             if not title_elem:
+                self.logger.warning("  ✗ 未找到事件标题")
                 return None
             
             title = clean_text(title_elem.get_text())
+            self.logger.debug(f"  ✓ 提取标题: {title}")
             
             data = {
                 'title': title,
@@ -335,19 +637,27 @@ class BaiduBaikeSpider(scrapy.Spider):
                 'emperor_id': emperor_id
             }
             
+            self.logger.debug(f"  ✓ 判断事件类型: {data['event_type'].value}")
+            
             # 提取基础信息框
             info_box = soup.select_one('.basic-info')
             if info_box:
+                self.logger.debug("  ✓ 找到基础信息框")
+                
                 # 提取时间
-                time_elem = info_box.find('dt', text=re.compile('时间|发生时间|年代'))
+                time_elem = info_box.find('dt', string=re.compile('时间|发生时间|年代'))
                 if time_elem and time_elem.find_next_sibling('dd'):
                     time_text = time_elem.find_next_sibling('dd').get_text(strip=True)
                     data['start_date'] = self.date_parser.parse_chinese_date(time_text)
+                    self.logger.debug(f"  ✓ 提取时间: {time_text} -> {data['start_date']}")
                 
                 # 提取地点
-                location_elem = info_box.find('dt', text=re.compile('地点|发生地点'))
+                location_elem = info_box.find('dt', string=re.compile('地点|发生地点'))
                 if location_elem and location_elem.find_next_sibling('dd'):
                     data['location'] = clean_text(location_elem.find_next_sibling('dd').get_text())
+                    self.logger.debug(f"  ✓ 提取地点: {data['location']}")
+            else:
+                self.logger.debug("  ✗ 未找到基础信息框")
             
             # 提取描述
             summary = soup.select_one('.lemma-summary')
@@ -355,9 +665,11 @@ class BaiduBaikeSpider(scrapy.Spider):
                 paragraphs = summary.find_all('div', class_='para')
                 if paragraphs:
                     data['description'] = clean_text(paragraphs[0].get_text())
+                    self.logger.debug(f"  ✓ 提取描述: {len(data['description'])} 字符")
             
             # 创建Event实体
             event_id = generate_id("ming_event", title)
+            self.logger.debug(f"  ✓ 生成event_id: {event_id}")
             
             event = Event(
                 event_id=event_id,
@@ -370,13 +682,17 @@ class BaiduBaikeSpider(scrapy.Spider):
                 location=data.get('location'),
                 description=data.get('description'),
                 significance=data.get('significance'),
+                source_url=f"https://baike.baidu.com/item/{title}",
                 data_source='baidu'
             )
             
+            self.logger.debug(f"  ✓ Event实体创建成功")
             return event
         
         except Exception as e:
-            self.logger.warning(f"提取事件数据时出错: {str(e)}")
+            self.logger.error(f"  ❌ 提取事件数据时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"  错误堆栈: {traceback.format_exc()}")
             return None
     
     def _determine_event_type(self, title: str, soup: BeautifulSoup) -> EventType:
@@ -396,10 +712,17 @@ class BaiduBaikeSpider(scrapy.Spider):
         """解析人物页面"""
         emperor_id = response.meta.get('emperor_id')
         
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"👤 开始解析人物页面")
+        self.logger.info(f"   URL: {response.url}")
+        self.logger.info(f"   关联皇帝 ID: {emperor_id}")
+        self.logger.info(f"{'='*60}")
+        
         try:
             soup = BeautifulSoup(response.text, 'lxml')
             
             # 提取人物数据
+            self.logger.info("🔍 开始提取人物数据...")
             person_data = self._extract_person_data(soup, emperor_id)
             
             if person_data:
@@ -417,16 +740,22 @@ class BaiduBaikeSpider(scrapy.Spider):
             self.stats['parse_errors'] += 1
             self.logger.error(f"❌ 解析人物页面失败: {response.url}")
             self.logger.error(f"   错误信息: {str(e)}")
+            import traceback
+            self.logger.debug(f"   错误堆栈: {traceback.format_exc()}")
     
     def _extract_person_data(self, soup: BeautifulSoup, emperor_id: str) -> Optional[Person]:
         """从页面中提取人物数据"""
         try:
+            self.logger.debug("  🔍 开始提取人物详细信息...")
+            
             # 获取人名
             title_elem = soup.select_one('.lemmaWgt-lemmaTitle-title h1')
             if not title_elem:
+                self.logger.warning("  ✗ 未找到人物名称")
                 return None
             
             name = clean_text(title_elem.get_text())
+            self.logger.debug(f"  ✓ 提取人名: {name}")
             
             # 提取基础信息
             alias_list = []
@@ -437,30 +766,38 @@ class BaiduBaikeSpider(scrapy.Spider):
             
             info_box = soup.select_one('.basic-info')
             if info_box:
+                self.logger.debug("  ✓ 找到基础信息框")
+                
                 # 提取别名、字号
-                alias_elem = info_box.find('dt', text=re.compile('别名|字号|本名'))
+                alias_elem = info_box.find('dt', string=re.compile('别名|字号|本名'))
                 if alias_elem and alias_elem.find_next_sibling('dd'):
                     alias_text = alias_elem.find_next_sibling('dd').get_text(strip=True)
                     alias_list = [a.strip() for a in re.split('[，、]', alias_text) if a.strip()]
+                    self.logger.debug(f"  ✓ 提取别名: {len(alias_list)} 个")
                 
                 # 提取出生日期
-                birth_elem = info_box.find('dt', text=re.compile('出生日期|出生时间'))
+                birth_elem = info_box.find('dt', string=re.compile('出生日期|出生时间'))
                 if birth_elem and birth_elem.find_next_sibling('dd'):
                     birth_text = birth_elem.find_next_sibling('dd').get_text(strip=True)
                     birth_date = self.date_parser.parse_chinese_date(birth_text)
+                    self.logger.debug(f"  ✓ 提取出生日期: {birth_text} -> {birth_date}")
                 
                 # 提取去世日期
-                death_elem = info_box.find('dt', text=re.compile('逝世日期|逝世时间'))
+                death_elem = info_box.find('dt', string=re.compile('逝世日期|逝世时间'))
                 if death_elem and death_elem.find_next_sibling('dd'):
                     death_text = death_elem.find_next_sibling('dd').get_text(strip=True)
                     death_date = self.date_parser.parse_chinese_date(death_text)
+                    self.logger.debug(f"  ✓ 提取去世日期: {death_text} -> {death_date}")
                 
                 # 提取职位
-                position_elem = info_box.find('dt', text=re.compile('职业|主要成就|职务'))
+                position_elem = info_box.find('dt', string=re.compile('职业|主要成就|职务'))
                 if position_elem and position_elem.find_next_sibling('dd'):
                     position = clean_text(position_elem.find_next_sibling('dd').get_text())
                     # 根据职位判断人物类型
                     person_type = self._determine_person_type(position, soup)
+                    self.logger.debug(f"  ✓ 提取职位: {position} -> 类型: {person_type.value}")
+            else:
+                self.logger.debug("  ✗ 未找到基础信息框")
             
             # 提取生平
             biography = ''
@@ -469,9 +806,11 @@ class BaiduBaikeSpider(scrapy.Spider):
                 paragraphs = summary.find_all('div', class_='para')
                 if paragraphs:
                     biography = clean_text(paragraphs[0].get_text())
+                    self.logger.debug(f"  ✓ 提取生平: {len(biography)} 字符")
             
             # 创建Person实体
             person_id = generate_id("ming_person", name)
+            self.logger.debug(f"  ✓ 生成person_id: {person_id}")
             
             person = Person(
                 person_id=person_id,
@@ -484,13 +823,17 @@ class BaiduBaikeSpider(scrapy.Spider):
                 position=position,
                 biography=biography,
                 related_emperors=[emperor_id] if emperor_id else [],
+                source_url=f"https://baike.baidu.com/item/{name}",
                 data_source='baidu'
             )
             
+            self.logger.debug(f"  ✓ Person实体创建成功")
             return person
         
         except Exception as e:
-            self.logger.warning(f"提取人物数据时出错: {str(e)}")
+            self.logger.error(f"  ❌ 提取人物数据时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"  错误堆栈: {traceback.format_exc()}")
             return None
     
     def _determine_person_type(self, position: str, soup: BeautifulSoup) -> PersonType:

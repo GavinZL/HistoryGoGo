@@ -21,7 +21,7 @@ class WikipediaSpider(scrapy.Spider):
     allowed_domains = ['zh.wikipedia.org']
     
     custom_settings = {
-        'DOWNLOAD_DELAY': 2,
+        'DOWNLOAD_DELAY': 5,
         'RANDOMIZE_DOWNLOAD_DELAY': True,
         'CONCURRENT_REQUESTS': 4,
     }
@@ -31,8 +31,13 @@ class WikipediaSpider(scrapy.Spider):
         self.date_parser = DateParser()
         
         # 获取爬取模式配置
-        self.crawl_mode = self.settings.get('CRAWL_MODE', 'test')
-        self.test_emperor_count = self.settings.get('TEST_EMPEROR_COUNT', 3)
+        if hasattr(self, 'settings'):
+            self.crawl_mode = self.settings.get('CRAWL_MODE', 'test')
+            self.test_emperor_count = self.settings.get('TEST_EMPEROR_COUNT', 3)
+        else:
+            # 如果没有settings（比如在测试中），使用默认值
+            self.crawl_mode = 'test'
+            self.test_emperor_count = 3
     
     def start_requests(self):
         """生成起始请求"""
@@ -62,21 +67,36 @@ class WikipediaSpider(scrapy.Spider):
         """解析皇帝页面"""
         emperor_info = response.meta['emperor_info']
         
+        self.logger.info(f"\n{'='*80}")
+        self.logger.info(f"👑 [维基] 开始解析皇帝: {emperor_info['name']}")
+        self.logger.info(f"   URL: {response.url}")
+        self.logger.info(f"   朝代顺序: {emperor_info.get('dynasty_order')}")
+        self.logger.info(f"{'='*80}")
+        
         try:
             soup = BeautifulSoup(response.text, 'lxml')
             
             # 提取皇帝信息
+            self.logger.info(f"📋 开始提取 {emperor_info['name']} 的详细信息...")
             emperor_data = self._extract_emperor_data(soup, emperor_info)
             
             if emperor_data:
-                self.logger.info(f"[Wiki] 成功爬取皇帝: {emperor_data['name']}")
+                self.logger.info(f"✅ 成功爱取皇帝: {emperor_data['name']}")
+                self.logger.info(f"   - 庙号: {emperor_data.get('temple_name', '未知')}")
+                self.logger.info(f"   - 年号: {emperor_data.get('reign_title', '未知')}")
+                self.logger.info(f"   - 出生: {emperor_data.get('birth_date', '未知')}")
+                self.logger.info(f"   - 去世: {emperor_data.get('death_date', '未知')}")
+                self.logger.info(f"   - 简介长度: {len(emperor_data.get('biography', ''))} 字符")
+                self.logger.info(f"   - Infobox字段: {len(emperor_data.get('infobox_data', {}))} 项")
                 
                 # 创建Emperor实体
                 emperor = self._create_emperor_entity(emperor_data, emperor_info)
                 yield emperor
                 
         except Exception as e:
-            self.logger.error(f"[Wiki] 解析皇帝页面失败: {emperor_info['name']}, 错误: {str(e)}")
+            self.logger.error(f"❌ [维基] 解析皇帝页面失败: {emperor_info['name']}, 错误: {str(e)}")
+            import traceback
+            self.logger.debug(f"   错误堆栈: {traceback.format_exc()}")
     
     def _extract_emperor_data(self, soup: BeautifulSoup, emperor_info: Dict) -> Optional[Dict[str, Any]]:
         """从维基百科页面中提取皇帝数据"""
@@ -86,33 +106,21 @@ class WikipediaSpider(scrapy.Spider):
             'reign_title': emperor_info.get('reign_title'),
             'biography': '',
             'achievements': '',
-            'portrait_url': None
+            'portrait_url': None,
+            'infobox_data': {},  # 存储infobox中的所有信息
+            'biography_html': ''  # 存储生平HTML内容
         }
         
         try:
-            # 提取Infobox信息框
+            self.logger.info("  🔍 开始提取infobox表格数据...")
+            
+            # 提取Infobox信息框（基于<tr>标签解析）
             infobox = soup.find('table', class_='infobox')
             if infobox:
-                # 提取出生日期
-                birth_row = infobox.find('th', text=re.compile('出生|誕生'))
-                if birth_row and birth_row.find_next_sibling('td'):
-                    birth_text = birth_row.find_next_sibling('td').get_text(strip=True)
-                    data['birth_date'] = self.date_parser.parse_chinese_date(birth_text)
-                
-                # 提取去世日期
-                death_row = infobox.find('th', text=re.compile('逝世'))
-                if death_row and death_row.find_next_sibling('td'):
-                    death_text = death_row.find_next_sibling('td').get_text(strip=True)
-                    data['death_date'] = self.date_parser.parse_chinese_date(death_text)
-                
-                # 提取画像
-                portrait = infobox.find('img')
-                if portrait and portrait.get('src'):
-                    # 维基百科图片URL需要加上https:前缀
-                    img_url = portrait['src']
-                    if img_url.startswith('//'):
-                        img_url = 'https:' + img_url
-                    data['portrait_url'] = img_url
+                self.logger.info("  ✓ 找到infobox表格")
+                self._extract_infobox_table(infobox, data)
+            else:
+                self.logger.warning("  ⚠ 未找到infobox表格")
             
             # 提取首段简介
             content = soup.find('div', class_='mw-parser-output')
@@ -124,6 +132,9 @@ class WikipediaSpider(scrapy.Spider):
                     for sup in first_para.find_all('sup'):
                         sup.decompose()
                     data['biography'] = clean_text(first_para.get_text())
+                
+                # 提取生平内容（从mw-heading mw-heading2开始到下一个mw-heading2）
+                data['biography_html'] = self._extract_biography_section(soup)
             
             # 尝试提取"主要成就"相关内容
             # 在维基百科中可能在不同的章节
@@ -134,12 +145,181 @@ class WikipediaSpider(scrapy.Spider):
                     if next_elem and next_elem.name in ['p', 'ul']:
                         data['achievements'] = clean_text(next_elem.get_text())
                         break
+            
+            # 记录提取结果
+            self.logger.info(f"  📊 提取结果统计:")
+            self.logger.info(f"     - 出生日期: {'✓' if data.get('birth_date') else '✗'}")
+            self.logger.info(f"     - 去世日期: {'✓' if data.get('death_date') else '✗'}")
+            self.logger.info(f"     - 简介长度: {len(data.get('biography', ''))} 字符")
+            self.logger.info(f"     - 成就长度: {len(data.get('achievements', ''))} 字符")
+            self.logger.info(f"     - 画像URL: {'✓' if data.get('portrait_url') else '✗'}")
+            self.logger.info(f"     - Infobox字段: {len(data.get('infobox_data', {}))} 项")
         
         except Exception as e:
-            self.logger.warning(f"[Wiki] 提取皇帝详细信息时出错: {str(e)}")
+            self.logger.error(f"  ❌ 提取皇帝详细信息时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"  错误堆栈: {traceback.format_exc()}")
         
         return data
     
+    def _extract_infobox_table(self, infobox, data: Dict) -> None:
+        """
+        从infobox表格中提取<tr>标签信息
+        维基百科的基础信息在infobox表格中，每行是一个<tr>标签
+        """
+        try:
+            self.logger.debug("    🔍 开始提取infobox表格行...")
+            
+            # 遍历表格行
+            rows = infobox.find_all('tr')
+            self.logger.debug(f"    📊 找到 {len(rows)} 行数据")
+            
+            row_count = 0
+            for row in rows:
+                try:
+                    # 提取表头和表数据
+                    th = row.find('th')
+                    td = row.find('td')
+                    
+                    if not th or not td:
+                        continue
+                    
+                    row_count += 1
+                    field_name = clean_text(th.get_text())
+                    field_value = clean_text(td.get_text())
+                    
+                    if not field_name or not field_value:
+                        continue
+                    
+                    # 存储到infobox_data
+                    data['infobox_data'][field_name] = field_value
+                    self.logger.debug(f"    📌 [{row_count}] {field_name}: {field_value[:50]}...")
+                    
+                    # 根据字段名提取特定信息
+                    # 出生日期
+                    if any(keyword in field_name for keyword in ['出生', '誕生', '生于']):
+                        if not data.get('birth_date'):
+                            parsed_date = self.date_parser.parse_chinese_date(field_value)
+                            if parsed_date:
+                                data['birth_date'] = parsed_date
+                                self.logger.debug(f"    ✓ 从表格提取出生日期: {field_value} -> {parsed_date}")
+                    
+                    # 去世日期
+                    elif any(keyword in field_name for keyword in ['逝世', '卒于', '去世']):
+                        if not data.get('death_date'):
+                            parsed_date = self.date_parser.parse_chinese_date(field_value)
+                            if parsed_date:
+                                data['death_date'] = parsed_date
+                                self.logger.debug(f"    ✓ 从表格提取去世日期: {field_value} -> {parsed_date}")
+                    
+                    # 在位时间/统治
+                    elif any(keyword in field_name for keyword in ['统治', '在位', 'reign']):
+                        data['infobox_data']['reign'] = field_value
+                        self.logger.debug(f"    ✓ 从表格提取在位时间: {field_value}")
+                    
+                    # 庙号
+                    elif any(keyword in field_name for keyword in ['庙号']):
+                        if not data.get('temple_name'):
+                            data['temple_name'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取庙号: {field_value}")
+                    
+                    # 谥号
+                    elif any(keyword in field_name for keyword in ['谥号']):
+                        data['infobox_data']['posthumous_name'] = field_value
+                        self.logger.debug(f"    ✓ 从表格提取谥号: {field_value}")
+                    
+                    # 年号
+                    elif any(keyword in field_name for keyword in ['年号', '年號']):
+                        if not data.get('reign_title'):
+                            data['reign_title'] = field_value
+                            self.logger.debug(f"    ✓ 从表格提取年号: {field_value}")
+                    
+                    # 陵墓
+                    elif any(keyword in field_name for keyword in ['陵墓', '陵寝', '安葬']):
+                        data['infobox_data']['tomb'] = field_value
+                        self.logger.debug(f"    ✓ 从表格提取陵墓: {field_value}")
+                    
+                    # 皇后
+                    elif any(keyword in field_name for keyword in ['皇后']):
+                        data['infobox_data']['empress'] = field_value
+                        self.logger.debug(f"    ✓ 从表格提取皇后: {field_value}")
+                    
+                except Exception as row_error:
+                    self.logger.debug(f"    ⚠ 处理行时出错: {str(row_error)}")
+                    continue
+            
+            # 尝试提取图片URL
+            if not data.get('portrait_url'):
+                img = infobox.find('img')
+                if img and img.get('src'):
+                    img_url = img['src']
+                    if img_url.startswith('//'):
+                        img_url = 'https:' + img_url
+                    elif img_url.startswith('/'):
+                        img_url = 'https://zh.wikipedia.org' + img_url
+                    
+                    data['portrait_url'] = img_url
+                    data['infobox_data']['portrait_url'] = img_url
+                    self.logger.debug(f"    ✓ 从表格提取图片URL: {img_url[:60]}...")
+            
+            self.logger.debug(f"    ✓ Infobox表格提取完成，共 {len(data['infobox_data'])} 个字段")
+        
+        except Exception as e:
+            self.logger.error(f"    ❌ 提取infobox表格时出错: {str(e)}")
+            import traceback
+            self.logger.debug(f"    错误堆栈: {traceback.format_exc()}")
+    
+    def _extract_biography_section(self, soup: BeautifulSoup) -> str:
+        """
+        提取生平章节的HTML内容
+        范围：第一个 class='mw-heading mw-heading2' 到下一个相同类名的div之间的内容
+        实际HTML结构：<div class="mw-heading mw-heading2 section-heading" onclick="..."><h2 id="生平">...</h2></div>
+        """
+        try:
+            self.logger.debug("    🔍 开始提取生平章节HTML...")
+            
+            # 找到第一个包含 mw-heading mw-heading2 的div（可能还有其他class）
+            first_heading = soup.find('div', class_=lambda x: x and 'mw-heading' in x and 'mw-heading2' in x)
+            
+            if not first_heading:
+                self.logger.warning("    ⚠ 未找到mw-heading mw-heading2标题")
+                return ''
+            
+            # 提取h2标题文本用于日志
+            h2_elem = first_heading.find('h2')
+            h2_text = h2_elem.get_text() if h2_elem else '未知'
+            self.logger.debug(f"    ✓ 找到生平章节: {h2_text}")
+            
+            # 收集该heading之后、下一个heading2之前的所有内容
+            html_parts = []
+            html_parts.append(str(first_heading))  # 包含标题本身
+            
+            current_elem = first_heading.find_next_sibling()
+            element_count = 0
+            
+            while current_elem:
+                # 检查是否遇到下一个 mw-heading2（使用lambda匹配class列表）
+                if current_elem.name == 'div':
+                    classes = current_elem.get('class', [])
+                    if 'mw-heading' in classes and 'mw-heading2' in classes:
+                        self.logger.debug(f"    ✓ 遇到下一个heading2，停止采集")
+                        break
+                
+                html_parts.append(str(current_elem))
+                element_count += 1
+                current_elem = current_elem.find_next_sibling()
+            
+            biography_html = '\n'.join(html_parts)
+            self.logger.debug(f"    ✓ 生平章节提取完成: {element_count} 个元素, {len(biography_html)} 字符")
+            
+            return biography_html
+        
+        except Exception as e:
+            self.logger.error(f"    ❌ 提取生平章节失败: {str(e)}")
+            import traceback
+            self.logger.debug(f"    错误堆栈: {traceback.format_exc()}")
+            return ''
+
     def _create_emperor_entity(self, emperor_data: Dict, emperor_info: Dict) -> Emperor:
         """创建皇帝实体"""
         emperor_id = generate_id("ming_emperor", emperor_data['name'], emperor_info['dynasty_order'])
@@ -162,6 +342,8 @@ class WikipediaSpider(scrapy.Spider):
             biography=emperor_data.get('biography'),
             achievements=emperor_data.get('achievements'),
             portrait_url=emperor_data.get('portrait_url'),
+            html_content=emperor_data.get('biography_html', ''),
+            source_url=f"https://zh.wikipedia.org/wiki/{emperor_data['name']}",
             data_source='wikipedia'
         )
     
@@ -288,32 +470,45 @@ class WikipediaSpider(scrapy.Spider):
             position = None
             person_type = PersonType.OTHER
             biography = ''
+            infobox_data = {}  # 存储infobox中的所有信息
+            biography_html = ''  # 存储生平HTML内容
             
             infobox = soup.find('table', class_='infobox')
             if infobox:
+                # 提取infobox中的所有段落
+                infobox_paragraphs = infobox.find_all('p')
+                for p in infobox_paragraphs:
+                    p_text = clean_text(p.get_text())
+                    if p_text:
+                        infobox_data.setdefault('paragraphs', []).append(p_text)
+                
                 # 提取别名
                 alias_row = infobox.find('th', text=re.compile('字|號|別名'))
                 if alias_row and alias_row.find_next_sibling('td'):
                     alias_text = alias_row.find_next_sibling('td').get_text(strip=True)
                     alias_list = [a.strip() for a in re.split('[，、\n]', alias_text) if a.strip()]
+                    infobox_data['alias'] = alias_text
                 
                 # 提取出生日期
                 birth_row = infobox.find('th', text=re.compile('出生'))
                 if birth_row and birth_row.find_next_sibling('td'):
                     birth_text = birth_row.find_next_sibling('td').get_text(strip=True)
                     birth_date = self.date_parser.parse_chinese_date(birth_text)
+                    infobox_data['birth'] = birth_text
                 
                 # 提取去世日期
                 death_row = infobox.find('th', text=re.compile('逝世'))
                 if death_row and death_row.find_next_sibling('td'):
                     death_text = death_row.find_next_sibling('td').get_text(strip=True)
                     death_date = self.date_parser.parse_chinese_date(death_text)
+                    infobox_data['death'] = death_text
                 
                 # 提取职位
                 position_row = infobox.find('th', text=re.compile('職業|官職'))
                 if position_row and position_row.find_next_sibling('td'):
                     position = clean_text(position_row.find_next_sibling('td').get_text())
                     person_type = self._determine_person_type(position)
+                    infobox_data['position'] = position
             
             # 提取生平
             content = soup.find('div', class_='mw-parser-output')
@@ -323,6 +518,9 @@ class WikipediaSpider(scrapy.Spider):
                     for sup in first_para.find_all('sup'):
                         sup.decompose()
                     biography = clean_text(first_para.get_text())
+                
+                # 提取生平HTML内容
+                biography_html = self._extract_biography_section(soup)
             
             # 创建Person实体
             person_id = generate_id("ming_person", name)
@@ -338,6 +536,8 @@ class WikipediaSpider(scrapy.Spider):
                 position=position,
                 biography=biography,
                 related_emperors=[emperor_id] if emperor_id else [],
+                html_content=biography_html,
+                source_url=f"https://zh.wikipedia.org/wiki/{name}",
                 data_source='wikipedia'
             )
             

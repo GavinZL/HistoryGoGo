@@ -64,6 +64,8 @@ class Emperor:
     biography: Optional[str] = None
     achievements: Optional[str] = None
     portrait_url: Optional[str] = None
+    html_content: Optional[str] = None  # 存储生平HTML原始内容
+    source_url: Optional[str] = None  # 来源URL
     data_source: str = "baidu"
 
     def __post_init__(self):
@@ -88,6 +90,8 @@ class Event:
     casualty: Optional[str] = None
     result: Optional[str] = None
     related_persons: List[str] = field(default_factory=list)
+    html_content: Optional[str] = None  # 存储事件HTML原始内容
+    source_url: Optional[str] = None  # 来源URL
     data_source: str = "baidu"
 
 
@@ -108,6 +112,8 @@ class Person:
     contributions: Optional[str] = None
     portrait_url: Optional[str] = None
     related_emperors: List[str] = field(default_factory=list)
+    html_content: Optional[str] = None  # 存储生平HTML原始内容
+    source_url: Optional[str] = None  # 来源URL
     data_source: str = "baidu"
 
 

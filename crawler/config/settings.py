@@ -40,6 +40,7 @@ HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408, 429]
 ITEM_PIPELINES = {
     'crawler.pipelines.data_cleaning.DataCleaningPipeline': 100,
     'crawler.pipelines.data_validation.DataValidationPipeline': 200,
+    'crawler.pipelines.html_storage_pipeline.HtmlStoragePipeline': 250,  # HTML存储
     'crawler.pipelines.sqlite_pipeline.SQLitePipeline': 300,
     'crawler.pipelines.neo4j_pipeline.Neo4jPipeline': 400,
 }
@@ -77,3 +78,6 @@ VALIDATION_REPORT_PATH = 'crawler/data/reports/validation_report.json'
 
 # 统计报告配置
 STATISTICS_REPORT_PATH = 'crawler/data/reports/statistics_report.json'
+
+# HTML内容存储配置
+HTML_STORAGE_PATH = 'crawler/data/html'
