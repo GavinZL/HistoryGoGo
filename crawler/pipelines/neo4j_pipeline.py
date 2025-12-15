@@ -35,6 +35,23 @@ class Neo4jPipeline:
             'errors': 0
         }
     
+    @classmethod
+    def from_crawler(cls, crawler):
+        """
+        从Scrapy配置中读取Neo4j连接参数
+        
+        Args:
+            crawler: Scrapy Crawler对象
+        
+        Returns:
+            Neo4jPipeline实例
+        """
+        return cls(
+            uri=crawler.settings.get('NEO4J_URI', 'bolt://localhost:7687'),
+            user=crawler.settings.get('NEO4J_USER', 'neo4j'),
+            password=crawler.settings.get('NEO4J_PASSWORD', 'password')
+        )
+    
     def open_spider(self, spider):
         """爬虫启动时连接Neo4j"""
         try:

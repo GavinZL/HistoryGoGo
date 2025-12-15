@@ -29,23 +29,18 @@ class WikipediaSpider(scrapy.Spider):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.date_parser = DateParser()
-        
-        # 获取爬取模式配置
-        if hasattr(self, 'settings'):
-            self.crawl_mode = self.settings.get('CRAWL_MODE', 'test')
-            self.test_emperor_count = self.settings.get('TEST_EMPEROR_COUNT', 3)
-        else:
-            # 如果没有settings（比如在测试中），使用默认值
-            self.crawl_mode = 'test'
-            self.test_emperor_count = 3
     
     def start_requests(self):
         """生成起始请求"""
+        # 从 settings 中获取爬取模式配置
+        crawl_mode = self.settings.get('CRAWL_MODE', 'test')
+        test_emperor_count = self.settings.get('TEST_EMPEROR_COUNT', 3)
+        
         # 根据爬取模式决定爬取多少位皇帝
         emperors_to_crawl = MING_EMPERORS
-        if self.crawl_mode == 'test':
-            emperors_to_crawl = MING_EMPERORS[:self.test_emperor_count]
-            self.logger.info(f"[Wiki] 测试模式：只爬取前{self.test_emperor_count}位皇帝")
+        if crawl_mode == 'test':
+            emperors_to_crawl = MING_EMPERORS[:test_emperor_count]
+            self.logger.info(f"[Wiki] 测试模式：只爬取前{test_emperor_count}位皇帝")
         else:
             self.logger.info(f"[Wiki] 全量模式：爬取所有{len(MING_EMPERORS)}位皇帝")
         
@@ -272,42 +267,69 @@ class WikipediaSpider(scrapy.Spider):
     def _extract_biography_section(self, soup: BeautifulSoup) -> str:
         """
         提取生平章节的HTML内容
-        范围：第一个 class='mw-heading mw-heading2' 到下一个相同类名的div之间的内容
-        实际HTML结构：<div class="mw-heading mw-heading2 section-heading" onclick="..."><h2 id="生平">...</h2></div>
+        查找标题包含"生平"、"早期"等关键词的章节
+        支持桌面版和移动版两种HTML结构：
+        - 桌面版：<div class="mw-heading mw-heading2"><h2 id="生平">...</h2></div>
+        - 移动版：<div class="mw-heading mw-heading2 section-heading" onclick="..."><h2 id="生平">...</h2></div>
         """
         try:
             self.logger.debug("    🔍 开始提取生平章节HTML...")
             
-            # 找到第一个包含 mw-heading mw-heading2 的div（可能还有其他class）
-            first_heading = soup.find('div', class_=lambda x: x and 'mw-heading' in x and 'mw-heading2' in x)
+            # 查找所有 mw-heading2，找到第一个标题包含生平相关关键词的章节
+            all_headings = soup.find_all('div', class_=lambda x: x and 'mw-heading' in x and 'mw-heading2' in x)
             
-            if not first_heading:
-                self.logger.warning("    ⚠ 未找到mw-heading mw-heading2标题")
+            if not all_headings:
+                self.logger.warning("    ⚠ 未找到任何mw-heading2标题")
                 return ''
             
-            # 提取h2标题文本用于日志
-            h2_elem = first_heading.find('h2')
-            h2_text = h2_elem.get_text() if h2_elem else '未知'
-            self.logger.debug(f"    ✓ 找到生平章节: {h2_text}")
+            # 查找生平相关章节（按优先级匹配）
+            biography_keywords = ['生平', '早期', '经历', '即位', '登基']
+            first_heading = None
             
-            # 收集该heading之后、下一个heading2之前的所有内容
+            for heading in all_headings:
+                h2_elem = heading.find('h2')
+                if h2_elem:
+                    h2_text = h2_elem.get_text()
+                    if any(keyword in h2_text for keyword in biography_keywords):
+                        first_heading = heading
+                        self.logger.debug(f"    ✓ 找到生平相关章节: {h2_text}")
+                        break
+            
+            # 如果没找到关键词匹配的，使用第一个heading
+            if not first_heading:
+                first_heading = all_headings[0]
+                h2_elem = first_heading.find('h2')
+                h2_text = h2_elem.get_text() if h2_elem else '未知'
+                self.logger.warning(f"    ⚠ 未找到生平关键词，使用第一个章节: {h2_text}")
+            
+            # 移动版使用 <section> 标签包裹内容，桌面版直接跟在heading后
             html_parts = []
             html_parts.append(str(first_heading))  # 包含标题本身
             
-            current_elem = first_heading.find_next_sibling()
-            element_count = 0
-            
-            while current_elem:
-                # 检查是否遇到下一个 mw-heading2（使用lambda匹配class列表）
-                if current_elem.name == 'div':
-                    classes = current_elem.get('class', [])
-                    if 'mw-heading' in classes and 'mw-heading2' in classes:
-                        self.logger.debug(f"    ✓ 遇到下一个heading2，停止采集")
-                        break
+            # 检查是否是移动版（下一个元素是section标签）
+            next_elem = first_heading.find_next_sibling()
+            if next_elem and next_elem.name == 'section':
+                # 移动版：提取section内的全部内容
+                self.logger.debug(f"    ✓ 检测到移动版HTML结构（section标签）")
+                html_parts.append(str(next_elem))
+                element_count = 1
+            else:
+                # 桌面版：收集该heading之后、下一个heading2之前的所有内容
+                self.logger.debug(f"    ✓ 检测到桌面版HTML结构")
+                current_elem = next_elem
+                element_count = 0
                 
-                html_parts.append(str(current_elem))
-                element_count += 1
-                current_elem = current_elem.find_next_sibling()
+                while current_elem:
+                    # 检查是否遇到下一个 mw-heading2
+                    if current_elem.name == 'div':
+                        classes = current_elem.get('class', [])
+                        if 'mw-heading' in classes and 'mw-heading2' in classes:
+                            self.logger.debug(f"    ✓ 遇到下一个heading2，停止采集")
+                            break
+                    
+                    html_parts.append(str(current_elem))
+                    element_count += 1
+                    current_elem = current_elem.find_next_sibling()
             
             biography_html = '\n'.join(html_parts)
             self.logger.debug(f"    ✓ 生平章节提取完成: {element_count} 个元素, {len(biography_html)} 字符")

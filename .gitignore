@@ -60,3 +60,8 @@ neo4j_data/
 resources/*.xls
 resources/*.xlsx
 resources/*.csv
+
+
+
+crawler/data
+crawler_new/data
