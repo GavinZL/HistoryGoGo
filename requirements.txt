@@ -24,3 +24,5 @@ neo4j>=5.7.0
 python-dotenv>=1.0.0
 loguru>=0.7.0
 fake-useragent>=1.4.0
+
+openai

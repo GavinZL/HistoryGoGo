@@ -2,6 +2,9 @@
 Scrapy配置文件 - crawler_new
 """
 
+from pickle import TRUE
+
+
 BOT_NAME = 'historygogo_crawler_new'
 
 SPIDER_MODULES = ['crawler_new.spiders']
@@ -36,7 +39,8 @@ HTTPCACHE_EXPIRATION_SECS = 86400  # 1天
 HTTPCACHE_DIR = 'crawler_new/data/httpcache'
 HTTPCACHE_IGNORE_HTTP_CODES = [500, 502, 503, 504, 408, 429]
 
-# 配置Item Pipeline
+# 配置 Item Pipeline
+# 注意：只处理 Wikipedia 单一数据源
 ITEM_PIPELINES = {
     'crawler_new.pipelines.html_storage_pipeline.HtmlStoragePipeline': 100,  # HTML存储
     'crawler_new.pipelines.qwen_extraction_pipeline.QwenExtractionPipeline': 200,  # 千问大模型提取
@@ -73,15 +77,16 @@ NEO4J_PASSWORD = 'Ls_gavin_08'
 HTML_STORAGE_PATH = 'crawler_new/data/html'
 
 # 大模型配置（API 或 本地）
-USE_LOCAL_LLM = False  # True: 使用本地大模型, False: 使用API
+USE_LOCAL_LLM = TRUE  # True: 使用本地大模型, False: 使用API
 
 # 千问大模型 API 配置（当 USE_LOCAL_LLM = False 时使用）
 QWEN_API_KEY = 'sk-c5fffea7ea6b4b4ba3e7abca37a2edc0'  # 需要用户配置
 QWEN_API_URL = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation'
 QWEN_MODEL = 'qwen-max'  # 或 qwen-turbo
 
-# 本地大模型配置（当 USE_LOCAL_LLM = True 时使用）
-LOCAL_LLM_MODEL = 'qwen2.5:7b'  # Ollama 模型名称
+# 本地 LLM 配置（当 USE_LOCAL_LLM = True 时使用）
+# 注意：只处理 Wikipedia 单一数据源，无双源融合
+LOCAL_LLM_MODEL = 'qwen2.5:14b' #'qwen3:latest'# Ollama 模型名称
 LOCAL_LLM_BASE_URL = 'http://localhost:11434'  # Ollama API 地址
 
 # 爬取模式配置

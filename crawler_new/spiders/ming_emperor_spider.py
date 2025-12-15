@@ -1,6 +1,6 @@
 """
 明朝皇帝爬虫 - 基于千问大模型的智能化爬虫
-爬取 Wikipedia 和百度百科的 HTML 页面，然后由千问大模型进行结构化提取
+只爬取 Wikipedia 的 HTML 页面，然后由千问大模型进行结构化提取
 """
 
 import scrapy
@@ -18,7 +18,7 @@ class MingEmperorSpider(scrapy.Spider):
     name = 'ming_emperor'
     
     # 允许的域名
-    allowed_domains = ['zh.wikipedia.org', 'baike.baidu.com']
+    allowed_domains = ['zh.wikipedia.org']
     
     custom_settings = {
         'DOWNLOAD_DELAY': 3,
@@ -26,15 +26,15 @@ class MingEmperorSpider(scrapy.Spider):
         'CONCURRENT_REQUESTS': 4,
     }
     
-    def __init__(self, source='both', *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         初始化爬虫
         
         Args:
-            source: 数据源选择，可选值：'wikipedia', 'baidu', 'both'（默认）
+            无需参数，固定爬取 Wikipedia
         """
         super().__init__(*args, **kwargs)
-        self.data_source = source
+        self.data_source = 'wikipedia'  # 固定为 Wikipedia
         self.crawled_urls = set()  # 防止重复爬取
         
     def start_requests(self):
@@ -45,7 +45,7 @@ class MingEmperorSpider(scrapy.Spider):
         
         self.logger.info(f"\n{'='*100}")
         self.logger.info(f"🚀 [爬虫启动] Spider: {self.name}")
-        self.logger.info(f"   数据源: {self.data_source}")
+        self.logger.info(f"   数据源: Wikipedia（只爬取维基百科）")
         self.logger.info(f"   爬取模式: {crawl_mode}")
         self.logger.info(f"{'='*100}\n")
         
@@ -62,32 +62,22 @@ class MingEmperorSpider(scrapy.Spider):
             self.logger.info(f"   {idx}. {emp['name']} ({emp['temple_name']}) - {emp['reign_title']}")
         self.logger.info("")
         
-        # 爬取皇帝信息
+        # 爬取皇帝信息（只爬取 Wikipedia）
         request_count = 0
         for emperor_info in emperors_to_crawl:
-            # 根据 source 参数决定爬取哪个数据源
-            if self.data_source in ['wikipedia', 'both']:
-                request_count += 1
-                yield self._create_request(
-                    url=emperor_info['wikipedia_url'],
-                    emperor_info=emperor_info,
-                    data_source='wikipedia'
-                )
-            
-            if self.data_source in ['baidu', 'both']:
-                request_count += 1
-                yield self._create_request(
-                    url=emperor_info['baidu_url'],
-                    emperor_info=emperor_info,
-                    data_source='baidu'
-                )
+            request_count += 1
+            yield self._create_request(
+                url=emperor_info['wikipedia_url'],
+                emperor_info=emperor_info,
+                data_source='wikipedia'
+            )
         
-        self.logger.info(f"✅ [请求生成] 共生成 {request_count} 个爬取请求\n")
+        self.logger.info(f"✅ [请求生成] 共生成 {request_count} 个 Wikipedia 爬取请求\n")
     
     def _create_request(self, url: str, emperor_info: dict, data_source: str):
         """创建请求"""
         self.logger.info(f"\n{'='*80}")
-        self.logger.info(f"👑 [请求创建] 皇帝: {emperor_info['name']} ({data_source})")
+        self.logger.info(f"👑 [请求创建] 皇帝: {emperor_info['name']} (Wikipedia)")
         self.logger.info(f"   URL: {url}")
         self.logger.info(f"   朝代顺序: {emperor_info.get('dynasty_order')}")
         self.logger.info(f"   庙号: {emperor_info.get('temple_name')}")

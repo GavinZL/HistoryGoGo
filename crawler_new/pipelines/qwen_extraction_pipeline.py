@@ -21,7 +21,6 @@ class QwenExtractionPipeline:
         self.local_llm_model = local_llm_model
         self.local_llm_base_url = local_llm_base_url
         self.extractor = None
-        self.html_cache = {}  # 缓存已爬取的HTML，用于双源融合
     
     @classmethod
     def from_crawler(cls, crawler):
@@ -36,7 +35,7 @@ class QwenExtractionPipeline:
     def open_spider(self, spider):
         """Spider 开启时初始化提取器"""
         spider.logger.info(f"\n{'='*100}")
-        spider.logger.info(f"🤖 [Pipeline-2] QwenExtractionPipeline 启动")
+        spider.logger.info(f"🤖 [Pipeline-2] QwenExtractionPipeline 启动（只处理 Wikipedia）")
         
         # 判断使用哪种大模型
         if self.use_local_llm:
@@ -72,9 +71,9 @@ class QwenExtractionPipeline:
         if not isinstance(item, HtmlPageItem):
             return item
         
-        # 如果 API Key 未配置，跳过提取
+        # 如果 extractor 未初始化，跳过提取
         if not self.extractor:
-            spider.logger.warning(f"⚠️  [跳过] 千问提取: {item['page_id']}（API Key 未配置）")
+            spider.logger.warning(f"⚠️  [跳过] 千问提取: {item['page_id']}（Extractor 未初始化）")
             return item
         
         try:
@@ -87,57 +86,24 @@ class QwenExtractionPipeline:
             spider.logger.info(f"🤖 [Pipeline-2] 千问提取开始")
             spider.logger.info(f"   page_id: {item['page_id']}")
             spider.logger.info(f"   page_name: {page_name}")
-            spider.logger.info(f"   data_source: {data_source}")
+            spider.logger.info(f"   data_source: Wikipedia")
             
-            # 先缓存HTML，等待双源都爬取完毕后再处理
-            cache_key = f"{page_type}_{page_name}"
-            
-            if cache_key not in self.html_cache:
-                self.html_cache[cache_key] = {}
-            
-            # 存储当前数据源的HTML
-            self.html_cache[cache_key][data_source] = item['html_content']
-            
-            spider.logger.info(f"   💾 缓存HTML: {page_name} ({data_source})")
-            
-            # 检查是否双源都已完成
-            has_wikipedia = 'wikipedia' in self.html_cache[cache_key]
-            has_baidu = 'baidu' in self.html_cache[cache_key]
-            
-            spider.logger.info(f"   📋 数据源状态: Wikipedia={'✅' if has_wikipedia else '❌'}, Baidu={'✅' if has_baidu else '❌'}")
-            
-            # 如果双源都存在，执行提取
-            if has_wikipedia and has_baidu:
-                spider.logger.info(f"   ✅ 双源已完成，开始融合提取")
-                spider.logger.info(f"{'='*80}\n")
-                
-                html_wiki = self.html_cache[cache_key].get('wikipedia', '')
-                html_baidu = self.html_cache[cache_key].get('baidu', '')
-                
-                if page_type == 'emperor':
-                    extracted_item = self._extract_emperor_dual_source(item, html_wiki, html_baidu, spider)
-                elif page_type == 'event':
-                    extracted_item = self._extract_event(item, spider)
-                elif page_type == 'person':
-                    extracted_item = self._extract_person(item, spider)
-                else:
-                    spider.logger.warning(f"⚠️  未知页面类型: {page_type}")
-                    return item
-                
-                spider.logger.info(f"\n{'='*80}")
-                spider.logger.info(f"✅ [Pipeline-2] 千问提取完成: {page_name}")
-                spider.logger.info(f"{'='*80}\n")
-                
-                # 清理缓存
-                del self.html_cache[cache_key]
-                
-                return extracted_item
+            # 直接处理（只有 Wikipedia 单一数据源）
+            if page_type == 'emperor':
+                extracted_item = self._extract_emperor(item, spider)
+            elif page_type == 'event':
+                extracted_item = self._extract_event(item, spider)
+            elif page_type == 'person':
+                extracted_item = self._extract_person(item, spider)
             else:
-                # 只有一个数据源，等待另一个
-                spider.logger.info(f"   ⏳ 等待另一个数据源完成...")
-                spider.logger.info(f"   已有: {', '.join(self.html_cache[cache_key].keys())}")
-                spider.logger.info(f"{'='*80}\n")
+                spider.logger.warning(f"⚠️  未知页面类型: {page_type}")
                 return item
+            
+            spider.logger.info(f"\n{'='*80}")
+            spider.logger.info(f"✅ [Pipeline-2] 千问提取完成: {page_name}")
+            spider.logger.info(f"{'='*80}\n")
+            
+            return extracted_item
                 
         except Exception as e:
             spider.logger.error(f"\n{'='*80}")
@@ -148,6 +114,105 @@ class QwenExtractionPipeline:
             import traceback
             spider.logger.debug(traceback.format_exc())
             return item
+    
+    def _extract_emperor(self, html_item: HtmlPageItem, spider) -> ExtractedDataItem:
+        """提取皇帝信息（只处理 Wikipedia）"""
+        page_name = html_item['page_name']
+        html_content = html_item['html_content']
+        
+        spider.logger.info(f"\n{'='*80}")
+        spider.logger.info(f"🤖 [大模型提取] 开始提取皇帝信息")
+        spider.logger.info(f"   皇帝: {page_name}")
+        spider.logger.info(f"   Wikipedia HTML: {len(html_content)} 字符")
+        spider.logger.info(f"   提取模式: 一次性提取（基本信息 + 生平事迹）")
+        spider.logger.info(f"{'='*80}")
+        
+        spider.logger.info(f"\n🚀 [大模型调用] 一次性提取所有数据...")
+        
+        try:
+            # 1. 一次性提取所有数据
+            result = self.extractor.extract_emperor_all_data(
+                html_content=html_content,
+                page_name=page_name
+            )
+            
+            emperor_info = result.get('emperor_info', {})
+            events = result.get('events', [])
+            
+            spider.logger.info(f"   ✅ 数据提取完成")
+            spider.logger.info(f"\n📁 [基本信息]")
+            spider.logger.info(f"   皇帝: {emperor_info.get('皇帝')}")
+            spider.logger.info(f"   庙号: {emperor_info.get('庙号')}")
+            spider.logger.info(f"   年号: {emperor_info.get('年号')}")
+            spider.logger.info(f"   出生: {emperor_info.get('出生')}")
+            spider.logger.info(f"   去世: {emperor_info.get('去世')}")
+            
+            spider.logger.info(f"\n📜 [生平事迹] 提取完成: {len(events)} 条")
+            for idx, event in enumerate(events[:3], 1):
+                spider.logger.info(f"      {idx}. {event.get('时间')} - {event.get('事件', '')[:30]}...")
+            if len(events) > 3:
+                spider.logger.info(f"      ... 还有 {len(events) - 3} 条事迹")
+            
+        except Exception as e:
+            # 如果一次性提取失败，降级为分次提取
+            spider.logger.warning(f"   ⚠️  一次性提取失败: {str(e)}")
+            spider.logger.warning(f"   🔄 降级为分次提取模式...")
+            
+            # 1. 提取皇帝基本信息
+            spider.logger.info(f"\n📁 [Step 1] 调用大模型提取皇帝基本信息...")
+            emperor_info = self.extractor.extract_emperor_info(
+                html_content=html_content,
+                page_name=page_name
+            )
+            
+            spider.logger.info(f"   ✅ 皇帝信息提取完成")
+            spider.logger.info(f"   皇帝: {emperor_info.get('皇帝')}")
+            spider.logger.info(f"   庙号: {emperor_info.get('庙号')}")
+            spider.logger.info(f"   年号: {emperor_info.get('年号')}")
+            spider.logger.info(f"   出生: {emperor_info.get('出生')}")
+            spider.logger.info(f"   去世: {emperor_info.get('去世')}")
+            
+            # 2. 提取生平事迹
+            spider.logger.info(f"\n📜 [Step 2] 调用大模型提取生平事迹...")
+            events = self.extractor.extract_emperor_events(
+                html_content=html_content,
+                page_name=page_name
+            )
+            
+            spider.logger.info(f"   ✅ 生平事迹提取完成: {len(events)} 条")
+            for idx, event in enumerate(events[:3], 1):
+                spider.logger.info(f"      {idx}. {event.get('时间')} - {event.get('事件', '')[:30]}...")
+            if len(events) > 3:
+                spider.logger.info(f"      ... 还有 {len(events) - 3} 条事迹")
+        
+        # 3. 提取链接（用于递归爬取）
+        spider.logger.info(f"\n🔗 [Step 3] 提取链接信息...")
+        extracted_links = self._extract_links_from_events(events)
+        
+        event_links = [l for l in extracted_links if l['type'] == 'event']
+        person_links = [l for l in extracted_links if l['type'] == 'person']
+        
+        spider.logger.info(f"   ✅ 链接提取完成")
+        spider.logger.info(f"   事件链接: {len(event_links)} 个")
+        spider.logger.info(f"   人物链接: {len(person_links)} 个")
+        
+        # 4. 创建 ExtractedDataItem
+        spider.logger.info(f"\n📦 [Step 4] 创建 ExtractedDataItem")
+        extracted_item = ExtractedDataItem(
+            data_type='emperor',
+            html_item=html_item,
+            extracted_data={
+                'emperor_info': emperor_info,
+                'events': events
+            },
+            extracted_links=extracted_links,
+            extraction_time=datetime.now().isoformat()
+        )
+        
+        spider.logger.info(f"   ✅ ExtractedDataItem 创建完成")
+        spider.logger.info(f"{'='*80}\n")
+        
+        return extracted_item
     
     def _extract_emperor_dual_source(self, html_item: HtmlPageItem, html_wiki: str, html_baidu: str, spider) -> ExtractedDataItem:
         """提取皇帝信息（双源融合）"""
